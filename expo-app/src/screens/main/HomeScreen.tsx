@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
     View,
     Text,
@@ -7,20 +7,41 @@ import {
     RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuthStore, useColors } from '../../store';
+import { useNavigation } from '@react-navigation/native';
+import { useAuthStore, useProfileStore, useColors } from '../../store';
+import { profileService } from '../../services/profileService';
 
 export default function HomeScreen() {
+    const navigation = useNavigation<any>();
     const { user } = useAuthStore();
+    const { profile, setProfile } = useProfileStore();
     const colors = useColors();
     const [refreshing, setRefreshing] = React.useState(false);
+    const [completeness, setCompleteness] = React.useState(0);
 
-    const onRefresh = React.useCallback(() => {
+    const loadProfile = async () => {
+        try {
+            const data = await profileService.getFullProfile();
+            setProfile(data);
+            setCompleteness(profileService.calculateProfileCompleteness(data));
+        } catch (error) {
+            console.error('Failed to load profile', error);
+        }
+    };
+
+    useEffect(() => {
+        loadProfile();
+    }, []);
+
+    const onRefresh = React.useCallback(async () => {
         setRefreshing(true);
-        setTimeout(() => setRefreshing(false), 1000);
+        await loadProfile();
+        setRefreshing(false);
     }, []);
 
     const isSeeker = user?.user_type === 'seeker';
-    const profile = user?.profile;
+    // Use store profile if available, else fallback to auth user profile
+    const displayProfile = profile?.profile || user?.profile;
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -33,7 +54,7 @@ export default function HomeScreen() {
                 {/* Header */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={{ fontSize: 24, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
-                        Hello, {profile?.first_name || 'there'}! 👋
+                        Hello, {(displayProfile as any)?.first_name || 'there'}! 👋
                     </Text>
                     <Text style={{ fontSize: 14, color: colors.textSecondary }}>
                         {isSeeker ? 'Ready to find your next opportunity?' : 'Ready to find great talent?'}
@@ -53,7 +74,7 @@ export default function HomeScreen() {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>Profile Completeness</Text>
                             <Text style={{ fontSize: 16, fontWeight: '700', color: colors.primary }}>
-                                {(profile as any)?.profile_completeness || 0}%
+                                {completeness}%
                             </Text>
                         </View>
                         <View style={{ height: 8, backgroundColor: colors.border, borderRadius: 4, marginBottom: 12, overflow: 'hidden' }}>
@@ -61,11 +82,11 @@ export default function HomeScreen() {
                                 height: '100%',
                                 backgroundColor: colors.primary,
                                 borderRadius: 4,
-                                width: `${(profile as any)?.profile_completeness || 0}%`,
+                                width: `${completeness}%`,
                             }} />
                         </View>
                         <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                            Complete your profile to increase visibility
+                            {completeness < 100 ? 'Complete your profile to increase visibility' : 'Your profile is looking great!'}
                         </Text>
                     </View>
                 )}
@@ -76,15 +97,39 @@ export default function HomeScreen() {
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
                         {isSeeker ? (
                             <>
-                                <ActionCard icon="📄" title="Upload Resume" description="Add your latest resume" colors={colors} onPress={() => { }} />
-                                <ActionCard icon="💼" title="Browse Jobs" description="Find opportunities" colors={colors} onPress={() => { }} />
-                                <ActionCard icon="🎯" title="Update Skills" description="Showcase your expertise" colors={colors} onPress={() => { }} />
-                                <ActionCard icon="📅" title="Availability" description="Set your schedule" colors={colors} onPress={() => { }} />
+                                <ActionCard
+                                    icon="📄"
+                                    title="Upload Resume"
+                                    description="Add your latest resume"
+                                    colors={colors}
+                                    onPress={() => navigation.navigate('Resumes')}
+                                />
+                                <ActionCard
+                                    icon="💼"
+                                    title="Browse Jobs"
+                                    description="Find opportunities"
+                                    colors={colors}
+                                    onPress={() => navigation.navigate('Search')}
+                                />
+                                <ActionCard
+                                    icon="🎯"
+                                    title="Update Skills"
+                                    description="Showcase your expertise"
+                                    colors={colors}
+                                    onPress={() => navigation.navigate('Skills')}
+                                />
+                                <ActionCard
+                                    icon="📅"
+                                    title="Availability"
+                                    description="Set your schedule"
+                                    colors={colors}
+                                    onPress={() => navigation.navigate('Availability')}
+                                />
                             </>
                         ) : (
                             <>
                                 <ActionCard icon="📝" title="Post a Job" description="Find the right talent" colors={colors} onPress={() => { }} />
-                                <ActionCard icon="👥" title="Browse Candidates" description="View available talent" colors={colors} onPress={() => { }} />
+                                <ActionCard icon="👥" title="Browse Candidates" description="View available talent" colors={colors} onPress={() => navigation.navigate('Search')} />
                                 <ActionCard icon="📊" title="Job Analytics" description="Track your postings" colors={colors} onPress={() => { }} />
                                 <ActionCard icon="💳" title="Billing" description="Manage subscriptions" colors={colors} onPress={() => { }} />
                             </>
@@ -98,15 +143,15 @@ export default function HomeScreen() {
                     <View style={{ flexDirection: 'row', gap: 12 }}>
                         {isSeeker ? (
                             <>
-                                <StatCard label="Jobs Done" value={(profile as any)?.total_jobs_completed || 0} colors={colors} />
-                                <StatCard label="Rating" value={(profile as any)?.overall_rating?.toFixed(1) || '0.0'} colors={colors} />
-                                <StatCard label="Skills" value="0" colors={colors} />
+                                <StatCard label="Jobs Done" value={(displayProfile as any)?.total_jobs_completed || 0} colors={colors} />
+                                <StatCard label="Rating" value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)} colors={colors} />
+                                <StatCard label="Skills" value={profile?.skills?.length || 0} colors={colors} />
                             </>
                         ) : (
                             <>
-                                <StatCard label="Jobs Posted" value={(profile as any)?.total_jobs_posted || 0} colors={colors} />
-                                <StatCard label="Total Hires" value={(profile as any)?.total_hires || 0} colors={colors} />
-                                <StatCard label="Rating" value={(profile as any)?.overall_rating?.toFixed(1) || '0.0'} colors={colors} />
+                                <StatCard label="Jobs Posted" value={(displayProfile as any)?.total_jobs_posted || 0} colors={colors} />
+                                <StatCard label="Total Hires" value={(displayProfile as any)?.total_hires || 0} colors={colors} />
+                                <StatCard label="Rating" value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)} colors={colors} />
                             </>
                         )}
                     </View>

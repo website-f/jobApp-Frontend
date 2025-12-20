@@ -7,11 +7,12 @@ import {
     Alert,
     ActivityIndicator,
     TextInput,
+    Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useProfileStore, useColors } from '../../store';
-import skillService, { Skill, SeekerSkill } from '../../services/skillService';
+import skillService, { Skill, SeekerSkill, SeekerCertification } from '../../services/skillService';
 
 export default function SkillsScreen() {
     const navigation = useNavigation();
@@ -21,22 +22,38 @@ export default function SkillsScreen() {
     const [searchResults, setSearchResults] = useState<Skill[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [mySkills, setMySkills] = useState<SeekerSkill[]>([]);
+    const [myCerts, setMyCerts] = useState<SeekerCertification[]>([]);
+    const [expandedSkillId, setExpandedSkillId] = useState<number | null>(null);
     const colors = useColors();
 
+    // Cert Modal State
+    const [showCertModal, setShowCertModal] = useState(false);
+    const [certForm, setCertForm] = useState({
+        name: '',
+        organization: '',
+        issue_date: new Date().toISOString().split('T')[0],
+        credential_id: '',
+        credential_url: '',
+    });
+    const [activeSkillForCert, setActiveSkillForCert] = useState<SeekerSkill | null>(null);
+
     useEffect(() => {
-        loadSkills();
+        loadData();
     }, []);
 
-    const loadSkills = async () => {
+    const loadData = async () => {
         setIsLoading(true);
         try {
-            const response = await skillService.getMySkills();
-            // Response is an array directly, not { success, data }
-            setMySkills(response || []);
-            setSkills(response || []);
+            const [skillsData, certsData] = await Promise.all([
+                skillService.getMySkills(),
+                skillService.getMyCertifications(),
+            ]);
+            setMySkills(skillsData || []);
+            setSkills(skillsData || []);
+            setMyCerts(certsData || []);
         } catch (error: any) {
-            console.error('Failed to load skills:', error);
-            Alert.alert('Error', 'Failed to load skills. Please try again.');
+            console.error('Failed to load data:', error);
+            Alert.alert('Error', 'Failed to load skills and certifications.');
         } finally {
             setIsLoading(false);
         }
@@ -51,7 +68,6 @@ export default function SkillsScreen() {
         setIsSearching(true);
         try {
             const response = await skillService.searchSkills(query);
-            // Filter out skills already added
             const existingIds = mySkills.map((s) => s.skill);
             setSearchResults((response || []).filter((s) => !existingIds.includes(s.id)));
         } catch (error) {
@@ -73,8 +89,9 @@ export default function SkillsScreen() {
                 proficiency_level: 'intermediate',
                 is_primary: mySkills.length === 0,
             });
-            setMySkills([...mySkills, response]);
-            setSkills([...mySkills, response]);
+            const newSkills = [...mySkills, response];
+            setMySkills(newSkills);
+            setSkills(newSkills);
             setSearchQuery('');
             setSearchResults([]);
             Alert.alert('Success', `${skill.name} added to your skills`);
@@ -114,6 +131,69 @@ export default function SkillsScreen() {
         }
     };
 
+    // Certification Logic
+    const openAddCertModal = (skill: SeekerSkill) => {
+        setActiveSkillForCert(skill);
+        setCertForm({
+            name: `${skill.skill_name} Certified`, // Pre-fill with skill name
+            organization: '',
+            issue_date: new Date().toISOString().split('T')[0],
+            credential_id: '',
+            credential_url: '',
+        });
+        setShowCertModal(true);
+    };
+
+    const handleAddCert = async () => {
+        if (!certForm.name || !certForm.organization || !certForm.issue_date) {
+            Alert.alert('Missing Fields', 'Please fill Name, Organization, and Issue Date');
+            return;
+        }
+
+        try {
+            const newCert = await skillService.addCertification({
+                custom_name: certForm.name,
+                custom_organization: certForm.organization,
+                issue_date: certForm.issue_date,
+                credential_id: certForm.credential_id,
+                credential_url: certForm.credential_url,
+            });
+            setMyCerts([...myCerts, newCert]);
+            setShowCertModal(false);
+            Alert.alert('Success', 'Certification added!');
+        } catch (error: any) {
+            Alert.alert('Error', error.response?.data?.detail || 'Failed to add certification');
+        }
+    };
+
+    const removeCert = async (certId: number) => {
+        Alert.alert('Remove Certification', 'Irreversible action. Continue?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await skillService.removeCertification(certId);
+                        setMyCerts(myCerts.filter(c => c.id !== certId));
+                    } catch (error) {
+                        Alert.alert('Error', 'Failed to remove certification');
+                    }
+                }
+            }
+        ]);
+    };
+
+    // Helper to find certs related to a skill
+    const getRelatedCerts = (skill: SeekerSkill) => {
+        const query = skill.skill_name.toLowerCase();
+        return myCerts.filter(cert => {
+            const certName = (cert.name || cert.custom_name || '').toLowerCase();
+            const certOrg = (cert.organization || cert.custom_organization || '').toLowerCase();
+            return certName.includes(query) || certOrg.includes(query);
+        });
+    };
+
     const proficiencyLevels = ['beginner', 'intermediate', 'advanced', 'expert'];
     const levelColors: Record<string, string> = {
         beginner: '#3B82F6',
@@ -137,7 +217,7 @@ export default function SkillsScreen() {
                 <TouchableOpacity onPress={() => navigation.goBack()}>
                     <Text style={{ fontSize: 16, color: colors.primary, fontWeight: '600' }}>← Back</Text>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>My Skills</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>My Skills & Certs</Text>
                 <View style={{ width: 50 }} />
             </View>
 
@@ -163,7 +243,7 @@ export default function SkillsScreen() {
                             fontSize: 14,
                             color: colors.text,
                         }}
-                        placeholder="Search skills..."
+                        placeholder="Search skills (e.g. React, Python)..."
                         placeholderTextColor={colors.textMuted}
                         value={searchQuery}
                         onChangeText={handleSearch}
@@ -210,7 +290,7 @@ export default function SkillsScreen() {
                     )}
                 </View>
 
-                {/* My Skills */}
+                {/* My Skills List */}
                 <View style={{
                     backgroundColor: colors.card,
                     borderRadius: 16,
@@ -223,88 +303,188 @@ export default function SkillsScreen() {
                     </Text>
 
                     {isLoading ? (
-                        <View style={{ padding: 40, alignItems: 'center' }}>
-                            <ActivityIndicator size="large" color={colors.primary} />
-                        </View>
+                        <ActivityIndicator size="large" color={colors.primary} />
                     ) : mySkills.length === 0 ? (
-                        <View style={{ padding: 40, alignItems: 'center' }}>
-                            <Text style={{ fontSize: 40, marginBottom: 12 }}>🎯</Text>
-                            <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>No skills yet</Text>
-                            <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 4, textAlign: 'center' }}>
-                                Search and add your skills to match with jobs
-                            </Text>
-                        </View>
+                        <Text style={{ textAlign: 'center', color: colors.textSecondary, padding: 20 }}>No skills added yet.</Text>
                     ) : (
                         <View>
-                            {mySkills.map((skill) => (
-                                <View
-                                    key={skill.id}
-                                    style={{
-                                        backgroundColor: colors.inputBackground,
-                                        borderRadius: 12,
-                                        padding: 14,
-                                        marginBottom: 10,
-                                    }}
-                                >
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text }}>{skill.skill_name}</Text>
-                                            {skill.category_name && (
-                                                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>{skill.category_name}</Text>
-                                            )}
-                                        </View>
-                                        <TouchableOpacity onPress={() => removeSkill(skill.id)}>
-                                            <Text style={{ fontSize: 18, color: colors.error }}>×</Text>
+                            {mySkills.map((skill) => {
+                                const isExpanded = expandedSkillId === skill.id;
+                                const relatedCerts = getRelatedCerts(skill);
+
+                                return (
+                                    <View
+                                        key={skill.id}
+                                        style={{
+                                            backgroundColor: colors.inputBackground,
+                                            borderRadius: 12,
+                                            marginBottom: 10,
+                                            overflow: 'hidden',
+                                            borderWidth: 1,
+                                            borderColor: isExpanded ? colors.primary : 'transparent',
+                                        }}
+                                    >
+                                        {/* Main Skill Row */}
+                                        <TouchableOpacity
+                                            style={{ padding: 14 }}
+                                            onPress={() => setExpandedSkillId(isExpanded ? null : skill.id)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>{skill.skill_name}</Text>
+                                                    <Text style={{ fontSize: 12, color: colors.textSecondary }}>{relatedCerts.length} certification{relatedCerts.length !== 1 ? 's' : ''}</Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                                    <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, backgroundColor: levelColors[skill.proficiency_level] + '20' }}>
+                                                        <Text style={{ fontSize: 10, color: levelColors[skill.proficiency_level], textTransform: 'uppercase', fontWeight: '700' }}>
+                                                            {skill.proficiency_level}
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={{ fontSize: 14, color: colors.textSecondary }}>{isExpanded ? '▲' : '▼'}</Text>
+                                                </View>
+                                            </View>
                                         </TouchableOpacity>
-                                    </View>
 
-                                    {/* Proficiency Level */}
-                                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 12 }}>
-                                        {proficiencyLevels.map((level) => (
-                                            <TouchableOpacity
-                                                key={level}
-                                                style={{
-                                                    flex: 1,
-                                                    paddingVertical: 6,
-                                                    borderRadius: 8,
-                                                    backgroundColor: skill.proficiency_level === level ? levelColors[level] : colors.background,
-                                                    borderWidth: 1,
-                                                    borderColor: skill.proficiency_level === level ? levelColors[level] : colors.border,
-                                                    alignItems: 'center',
-                                                }}
-                                                onPress={() => updateSkillLevel(skill.id, level)}
-                                            >
-                                                <Text style={{
-                                                    fontSize: 10,
-                                                    fontWeight: '600',
-                                                    color: skill.proficiency_level === level ? '#FFF' : colors.textSecondary,
-                                                    textTransform: 'capitalize',
-                                                }}>
-                                                    {level}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
+                                        {/* Expanded Details */}
+                                        {isExpanded && (
+                                            <View style={{ paddingHorizontal: 14, paddingBottom: 14, paddingTop: 0 }}>
+                                                {/* Proficiency Selector */}
+                                                <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>Proficiency</Text>
+                                                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
+                                                    {proficiencyLevels.map((level) => (
+                                                        <TouchableOpacity
+                                                            key={level}
+                                                            style={{
+                                                                flex: 1,
+                                                                paddingVertical: 6,
+                                                                borderRadius: 8,
+                                                                backgroundColor: skill.proficiency_level === level ? levelColors[level] : colors.background,
+                                                                borderWidth: 1,
+                                                                borderColor: skill.proficiency_level === level ? levelColors[level] : colors.border,
+                                                                alignItems: 'center',
+                                                            }}
+                                                            onPress={() => updateSkillLevel(skill.id, level)}
+                                                        >
+                                                            <Text style={{
+                                                                fontSize: 10,
+                                                                fontWeight: '600',
+                                                                color: skill.proficiency_level === level ? '#FFF' : colors.textSecondary,
+                                                                textTransform: 'capitalize',
+                                                            }}>
+                                                                {level.slice(0, 3)}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
 
-                                    {/* Extra Info */}
-                                    <View style={{ flexDirection: 'row', gap: 12, marginTop: 10 }}>
-                                        {skill.is_primary && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                <Text style={{ fontSize: 11, color: colors.warning }}>⭐ Primary</Text>
+                                                {/* Certifications Section */}
+                                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                                    <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary }}>Certifications</Text>
+                                                    <TouchableOpacity onPress={() => openAddCertModal(skill)}>
+                                                        <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>+ Add Cert</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+
+                                                {relatedCerts.length > 0 ? (
+                                                    <View style={{ gap: 8 }}>
+                                                        {relatedCerts.map(cert => (
+                                                            <View key={cert.id} style={{
+                                                                flexDirection: 'row',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center',
+                                                                backgroundColor: colors.background,
+                                                                padding: 10,
+                                                                borderRadius: 8,
+                                                                borderLeftWidth: 3,
+                                                                borderLeftColor: colors.success
+                                                            }}>
+                                                                <View style={{ flex: 1 }}>
+                                                                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{cert.name || cert.custom_name}</Text>
+                                                                    <Text style={{ fontSize: 11, color: colors.textSecondary }}>{cert.organization || cert.custom_organization}</Text>
+                                                                </View>
+                                                                <TouchableOpacity onPress={() => removeCert(cert.id)}>
+                                                                    <Text style={{ fontSize: 16, color: colors.error }}>×</Text>
+                                                                </TouchableOpacity>
+                                                            </View>
+                                                        ))}
+                                                    </View>
+                                                ) : (
+                                                    <Text style={{ fontSize: 12, color: colors.textMuted, fontStyle: 'italic', marginBottom: 8 }}>
+                                                        No certifications linked to {skill.skill_name}.
+                                                    </Text>
+                                                )}
+
+                                                {/* Remove Skill Button */}
+                                                <TouchableOpacity
+                                                    style={{ marginTop: 16, alignItems: 'center' }}
+                                                    onPress={() => removeSkill(skill.id)}
+                                                >
+                                                    <Text style={{ fontSize: 12, color: colors.error }}>Remove Skill</Text>
+                                                </TouchableOpacity>
                                             </View>
                                         )}
-                                        {skill.endorsement_count > 0 && (
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                                <Text style={{ fontSize: 11, color: colors.textSecondary }}>👍 {skill.endorsement_count} endorsements</Text>
-                                            </View>
-                                        )}
                                     </View>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </View>
                     )}
                 </View>
             </ScrollView>
+
+            {/* Add/Edit Cert Modal */}
+            <Modal visible={showCertModal} animationType="fade" transparent>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
+                    <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+                        <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 4 }}>Add Certification</Text>
+                        <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 20 }}>
+                            For skill: <Text style={{ fontWeight: '600' }}>{activeSkillForCert?.skill_name}</Text>
+                        </Text>
+
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 }}>Certification Name *</Text>
+                        <TextInput
+                            style={{ backgroundColor: colors.inputBackground, borderRadius: 8, padding: 12, marginBottom: 12, color: colors.text }}
+                            value={certForm.name}
+                            onChangeText={(t) => setCertForm({ ...certForm, name: t })}
+                            placeholder="e.g. Certified Developer"
+                            placeholderTextColor={colors.textMuted}
+                        />
+
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 }}>Issuing Organization *</Text>
+                        <TextInput
+                            style={{ backgroundColor: colors.inputBackground, borderRadius: 8, padding: 12, marginBottom: 12, color: colors.text }}
+                            value={certForm.organization}
+                            onChangeText={(t) => setCertForm({ ...certForm, organization: t })}
+                            placeholder="e.g. AWS, Microsoft, Google"
+                            placeholderTextColor={colors.textMuted}
+                        />
+
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 }}>Issue Date (YYYY-MM-DD) *</Text>
+                        <TextInput
+                            style={{ backgroundColor: colors.inputBackground, borderRadius: 8, padding: 12, marginBottom: 20, color: colors.text }}
+                            value={certForm.issue_date}
+                            onChangeText={(t) => setCertForm({ ...certForm, issue_date: t })}
+                            placeholder="YYYY-MM-DD"
+                            placeholderTextColor={colors.textMuted}
+                        />
+
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                            <TouchableOpacity
+                                style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: colors.inputBackground }}
+                                onPress={() => setShowCertModal(false)}
+                            >
+                                <Text style={{ color: colors.text }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{ flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: colors.primary }}
+                                onPress={handleAddCert}
+                            >
+                                <Text style={{ color: '#FFF', fontWeight: '600' }}>Save Cert</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }

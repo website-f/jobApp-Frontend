@@ -276,6 +276,37 @@ export const profileService = {
         const response = await api.get<EmployerProfile>(`/profile/employer/${uuid}/`);
         return response.data;
     },
+
+    /**
+     * Calculate profile completeness score locally
+     */
+    calculateProfileCompleteness(profile: FullProfile): number {
+        if (!profile) return 0;
+        let score = 0;
+        const totalWeight = 100;
+
+        // Basic Info (30%)
+        const p = profile.profile as any;
+        if (p?.first_name && p?.last_name) score += 10;
+        if (p?.bio && p?.bio.length > 20) score += 10;
+        if (p?.city || p?.address?.city) score += 5;
+        if (p?.avatar_url) score += 5;
+
+        // Skills (20%)
+        if (profile.skills && profile.skills.length > 0) score += 10;
+        if (profile.skills && profile.skills.length >= 5) score += 10;
+
+        // Experience/Resume (30%)
+        if (profile.work_experiences && profile.work_experiences.length > 0) score += 15;
+        if (profile.resumes && profile.resumes.length > 0) score += 15;
+
+        // Availability (20%)
+        if (profile.availability && profile.availability.length > 0) score += 20;
+        // Or check if availability_status is set
+        if (p?.availability_status && p?.availability_status !== 'not_available') score += 10;
+
+        return Math.min(Math.round(score), 100);
+    }
 };
 
 export default profileService;

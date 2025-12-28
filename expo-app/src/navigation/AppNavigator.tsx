@@ -15,6 +15,8 @@ import SkillsScreen from '../screens/profile/SkillsScreen';
 import ResumesScreen from '../screens/profile/ResumesScreen';
 import ResumeAnalysisScreen from '../screens/profile/ResumeAnalysisScreen';
 import BrowseJobsScreen from '../screens/main/BrowseJobsScreen';
+import EmployerJobsScreen from '../screens/main/EmployerJobsScreen'; // Import
+import PostJobScreen from '../screens/main/PostJobScreen'; // Import
 import AvailabilityScreen from '../screens/profile/AvailabilityScreen';
 
 // Store
@@ -29,6 +31,7 @@ export type RootStackParamList = {
     Resumes: undefined;
     ResumeAnalysis: { uuid: string };
     Availability: undefined;
+    PostJob: undefined; // Add PostJob
 };
 
 export type AuthStackParamList = {
@@ -39,7 +42,8 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
     Home: undefined;
-    Search: undefined;
+    Search: undefined; // Reused for "Jobs" tab name
+    EmployerJobs: undefined;
     Profile: undefined;
     Account: undefined;
 };
@@ -69,6 +73,8 @@ function AuthNavigator() {
 function MainNavigator() {
     const { isDark } = useThemeStore();
     const colors = useColors();
+    const { user } = useAuthStore(); // Get user to check role
+    const isEmployer = user?.user_type === 'employer';
 
     return (
         <MainTab.Navigator
@@ -98,14 +104,28 @@ function MainNavigator() {
                     tabBarIcon: ({ color }) => <TabIcon name="home" color={color} />,
                 }}
             />
-            <MainTab.Screen
-                name="Search"
-                component={BrowseJobsScreen}
-                options={{
-                    tabBarLabel: 'Jobs',
-                    tabBarIcon: ({ color }) => <TabIcon name="search" color={color} />,
-                }}
-            />
+
+            {/* Conditionally render Jobs screen */}
+            {isEmployer ? (
+                <MainTab.Screen
+                    name="EmployerJobs"
+                    component={EmployerJobsScreen}
+                    options={{
+                        tabBarLabel: 'My Jobs',
+                        tabBarIcon: ({ color }) => <TabIcon name="search" color={color} />,
+                    }}
+                />
+            ) : (
+                <MainTab.Screen
+                    name="Search"
+                    component={BrowseJobsScreen}
+                    options={{
+                        tabBarLabel: 'Jobs',
+                        tabBarIcon: ({ color }) => <TabIcon name="search" color={color} />,
+                    }}
+                />
+            )}
+
             <MainTab.Screen
                 name="Profile"
                 component={ProfileScreen}
@@ -169,6 +189,7 @@ export default function AppNavigator() {
                         <RootStack.Screen name="Resumes" component={ResumesScreen} />
                         <RootStack.Screen name="ResumeAnalysis" component={ResumeAnalysisScreen} />
                         <RootStack.Screen name="Availability" component={AvailabilityScreen} />
+                        <RootStack.Screen name="PostJob" component={PostJobScreen} />
                     </>
                 ) : (
                     <RootStack.Screen name="Auth" component={AuthNavigator} />

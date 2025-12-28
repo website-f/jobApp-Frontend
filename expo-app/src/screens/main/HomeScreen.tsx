@@ -128,7 +128,7 @@ export default function HomeScreen() {
                             </>
                         ) : (
                             <>
-                                <ActionCard icon="📝" title="Post a Job" description="Find the right talent" colors={colors} onPress={() => { }} />
+                                <ActionCard icon="📝" title="Post a Job" description="Find the right talent" colors={colors} onPress={() => navigation.navigate('PostJob')} />
                                 <ActionCard icon="👥" title="Browse Candidates" description="View available talent" colors={colors} onPress={() => navigation.navigate('Search')} />
                                 <ActionCard icon="📊" title="Job Analytics" description="Track your postings" colors={colors} onPress={() => { }} />
                                 <ActionCard icon="💳" title="Billing" description="Manage subscriptions" colors={colors} onPress={() => { }} />

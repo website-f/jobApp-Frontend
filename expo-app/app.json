@@ -13,14 +13,25 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jobapp.mobile"
+      "bundleIdentifier": "com.jobapp.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "JobApp needs your location to show jobs near you.",
+        "NSLocationAlwaysUsageDescription": "JobApp needs your location to show jobs near you even when the app is in the background."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f172a"
       },
-      "package": "com.jobapp.mobile"
+      "package": "com.jobapp.mobile",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -28,6 +39,11 @@
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "62582829-a0f5-422f-bc49-c5a972c543c1"
+      }
+    }
   }
 }

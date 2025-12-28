@@ -10,14 +10,21 @@ import {
     ActivityIndicator,
     Dimensions,
     Platform,
+    Alert,
+    KeyboardAvoidingView,
+    RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { useColors, ThemeColors } from '../../store';
 import jobService, { Job, JobSearchFilters } from '../../services/jobService';
+import config from '../../config';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Default location from config (Kuala Lumpur, Malaysia)
+const DEFAULT_LOCATION = config.settings.defaultLocation;
 
 interface LocationSuggestion {
     place_id: number;
@@ -30,9 +37,12 @@ export default function BrowseJobsScreen() {
     const colors = useColors();
     const webViewRef = useRef<WebView>(null);
 
-    // Location state
-    const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-    const [locationAddress, setLocationAddress] = useState('Getting location...');
+    // Location state - initialize with defaults
+    const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>({
+        latitude: DEFAULT_LOCATION.latitude,
+        longitude: DEFAULT_LOCATION.longitude,
+    });
+    const [locationAddress, setLocationAddress] = useState(DEFAULT_LOCATION.address);
     const [showLocationModal, setShowLocationModal] = useState(false);
     const [locationSearch, setLocationSearch] = useState('');
     const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
@@ -51,6 +61,14 @@ export default function BrowseJobsScreen() {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
+    // Job Application state
+    const [showJobDetailModal, setShowJobDetailModal] = useState(false);
+    const [showApplyModal, setShowApplyModal] = useState(false);
+    const [isApplying, setIsApplying] = useState(false);
+    const [applicationType, setApplicationType] = useState<'apply' | 'bid'>('apply');
+    const [coverLetter, setCoverLetter] = useState('');
+    const [proposedRate, setProposedRate] = useState('');
+
     // Get current location on mount
     useEffect(() => {
         getCurrentLocation();
@@ -67,55 +85,65 @@ export default function BrowseJobsScreen() {
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
-                setLocationAddress('San Francisco, CA (Default)');
-                setCurrentLocation({ latitude: 37.7749, longitude: -122.4194 });
+                console.log('Location permission denied, using default (Kuala Lumpur)');
+                // Already initialized with defaults, just search
                 return;
             }
 
+            // Try to get current position with timeout
+            const locationPromise = Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+
+            // Add timeout to prevent hanging
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Location timeout')), 10000)
+            );
+
             try {
-                const location = await Location.getCurrentPositionAsync({
-                    accuracy: Location.Accuracy.Balanced,
-                });
+                const location = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
+
                 setCurrentLocation({
                     latitude: location.coords.latitude,
                     longitude: location.coords.longitude,
                 });
-
-                // Reverse geocode to get address
-                try {
-                    const address = await Location.reverseGeocodeAsync({
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude,
-                    });
-
-                    if (address[0]) {
-                        const addr = address[0];
-                        const city = addr.city || addr.district || 'Unknown';
-                        const region = addr.region || addr.country || '';
-                        setLocationAddress(`${city}, ${region}`);
-                    } else {
-                        setLocationAddress('Location found');
-                    }
-                } catch {
-                    setLocationAddress('Location found');
-                }
+                reverseGeocode(location.coords.latitude, location.coords.longitude);
             } catch (locError) {
-                // Location unavailable (common on emulator)
-                console.log('Using default location (emulator mode)');
-                setLocationAddress('San Francisco, CA (Demo)');
-                setCurrentLocation({ latitude: 37.7749, longitude: -122.4194 });
+                console.log('Could not get precise location, using default (Kuala Lumpur)');
+                // Keep default location already set
             }
         } catch (error) {
-            console.log('Using default location');
-            setLocationAddress('San Francisco, CA (Demo)');
-            setCurrentLocation({ latitude: 37.7749, longitude: -122.4194 });
+            console.log('Location error, using default (Kuala Lumpur):', error);
+            // Keep default location already set
         }
     };
 
-    const searchJobs = async () => {
-        if (!currentLocation) return;
+    const reverseGeocode = async (lat: number, lon: number) => {
+        try {
+            const address = await Location.reverseGeocodeAsync({
+                latitude: lat,
+                longitude: lon,
+            });
 
-        setIsLoading(true);
+            if (address[0]) {
+                const addr = address[0];
+                const city = addr.city || addr.district || 'Unknown';
+                const region = addr.region || addr.country || '';
+                setLocationAddress(`${city}, ${region} `);
+            } else {
+                setLocationAddress('Location found');
+            }
+        } catch {
+            setLocationAddress('Location found');
+        }
+    };
+
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchJobs = async (isRefetch = false) => {
+        if (!currentLocation) return; // Or handle if location is missing
+
+        if (!isRefetch) setIsLoading(true);
         try {
             const filters: JobSearchFilters = {
                 query: searchQuery || undefined,
@@ -128,15 +156,36 @@ export default function BrowseJobsScreen() {
             };
 
             const response = await jobService.searchJobs(filters);
+
             if (response.success) {
                 setJobs(response.data.results);
                 updateMapMarkers(response.data.results);
+            } else {
+                // If failed but returned fallback data (mock)
+                if (response.data && response.data.results.length > 0) {
+                    setJobs(response.data.results);
+                    updateMapMarkers(response.data.results);
+                    Alert.alert('Network Issue', 'Failed to fetch live jobs. Showing demo data instead.');
+                } else {
+                    Alert.alert('Error', 'Failed to fetch jobs.');
+                }
             }
         } catch (error) {
             console.error('Error searching jobs:', error);
+            Alert.alert('Error', 'An unexpected error occurred while searching for jobs.');
         } finally {
             setIsLoading(false);
+            setRefreshing(false);
         }
+    };
+
+    const searchJobs = () => {
+        fetchJobs(false);
+    };
+
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchJobs(true);
     };
 
     const searchLocationSuggestions = async (query: string) => {
@@ -193,10 +242,50 @@ export default function BrowseJobsScreen() {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'jobSelected') {
                 const job = jobs.find(j => j.id === data.jobId);
-                if (job) setSelectedJob(job);
+                if (job) {
+                    setSelectedJob(job);
+                    setShowJobDetailModal(true);
+                }
             }
         } catch (error) {
             console.log('Map message:', event.nativeEvent.data);
+        }
+    };
+
+    // Open job detail modal
+    const openJobDetail = (job: Job) => {
+        setSelectedJob(job);
+        setShowJobDetailModal(true);
+    };
+
+    // Handle job application
+    const handleApplyForJob = async () => {
+        if (!selectedJob) return;
+
+        setIsApplying(true);
+        try {
+            await jobService.applyForJob(selectedJob.id, {
+                application_type: applicationType,
+                cover_letter: coverLetter || undefined,
+                proposed_rate: applicationType === 'bid' && proposedRate ? parseFloat(proposedRate) : undefined,
+            });
+
+            Alert.alert('Success!', 'Your application has been submitted successfully.', [
+                {
+                    text: 'OK',
+                    onPress: () => {
+                        setShowApplyModal(false);
+                        setShowJobDetailModal(false);
+                        setCoverLetter('');
+                        setProposedRate('');
+                        setApplicationType('apply');
+                    }
+                }
+            ]);
+        } catch (error: any) {
+            Alert.alert('Error', error.response?.data?.detail || 'Failed to submit application. Please try again.');
+        } finally {
+            setIsApplying(false);
         }
     };
 
@@ -249,7 +338,7 @@ export default function BrowseJobsScreen() {
         }
         .popup-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
         .popup-company { font-size: 12px; color: ${isDark ? '#888' : '#666'}; margin-bottom: 6px; }
-        .popup-type { 
+        .popup-type {
             display: inline-block;
             background: ${colors.primaryLight || '#6366F120'};
             color: ${colors.primary};
@@ -263,8 +352,9 @@ export default function BrowseJobsScreen() {
 <body>
     <div id="map"></div>
     <script>
-        var map = L.map('map', { zoomControl: false }).setView([37.7749, -122.4194], 10);
-        
+        // Initialize map centered on Kuala Lumpur, Malaysia
+        var map = L.map('map', { zoomControl: false }).setView([${DEFAULT_LOCATION.latitude}, ${DEFAULT_LOCATION.longitude}], 12);
+
         L.tileLayer('${tileUrl}', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18,
@@ -313,11 +403,11 @@ export default function BrowseJobsScreen() {
                         '<div class="popup-company">' + job.company + '</div>' +
                         '<div class="popup-type">' + job.type.replace('_', ' ').toUpperCase() + '</div>'
                     );
-                
+
                 marker.on('click', function() {
                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jobSelected', jobId: job.id }));
                 });
-                
+
                 markers.push(marker);
             });
 
@@ -340,12 +430,13 @@ export default function BrowseJobsScreen() {
 
     const formatSalary = (job: Job) => {
         if (!job.salary_min) return 'Salary not specified';
+        const symbol = config.settings.currencySymbol;
         const formatNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : n.toString();
-        const period = job.salary_period === 'yearly' ? '/yr' : job.salary_period === 'hourly' ? '/hr' : '';
-        if (job.salary_max) {
-            return `$${formatNum(job.salary_min)} - $${formatNum(job.salary_max)}${period}`;
+        const period = job.salary_period === 'yearly' ? '/yr' : job.salary_period === 'hourly' ? '/hr' : job.salary_period === 'monthly' ? '/mo' : '';
+        if (job.salary_max && job.salary_max !== job.salary_min) {
+            return `${symbol}${formatNum(job.salary_min)} - ${symbol}${formatNum(job.salary_max)}${period}`;
         }
-        return `$${formatNum(job.salary_min)}${period}`;
+        return `${symbol}${formatNum(job.salary_min)}${period}`;
     };
 
     const formatDistance = (km?: number) => {
@@ -637,6 +728,9 @@ export default function BrowseJobsScreen() {
                         data={jobs}
                         keyExtractor={(item) => item.uuid}
                         contentContainerStyle={{ padding: 16 }}
+                        refreshControl={
+                            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+                        }
                         renderItem={({ item }) => (
                             <TouchableOpacity
                                 style={{
@@ -647,7 +741,7 @@ export default function BrowseJobsScreen() {
                                     borderWidth: 1,
                                     borderColor: selectedJob?.id === item.id ? colors.primary : colors.border,
                                 }}
-                                onPress={() => setSelectedJob(item)}
+                                onPress={() => openJobDetail(item)}
                             >
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <View style={{ flex: 1 }}>
@@ -789,6 +883,292 @@ export default function BrowseJobsScreen() {
                         />
                     </View>
                 </View>
+            </Modal>
+
+            {/* Job Detail Modal */}
+            <Modal visible={showJobDetailModal} animationType="slide">
+                <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+                    {selectedJob && (
+                        <>
+                            {/* Header */}
+                            <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                padding: 16,
+                                borderBottomWidth: 1,
+                                borderBottomColor: colors.border
+                            }}>
+                                <TouchableOpacity onPress={() => setShowJobDetailModal(false)} style={{ marginRight: 16 }}>
+                                    <Text style={{ fontSize: 24, color: colors.text }}>←</Text>
+                                </TouchableOpacity>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }} numberOfLines={1}>
+                                        {selectedJob.title}
+                                    </Text>
+                                    <Text style={{ fontSize: 13, color: colors.textSecondary }}>{selectedJob.company_name}</Text>
+                                </View>
+                            </View>
+
+                            {/* Content */}
+                            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+                                {/* Job Type & Salary */}
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                                    <View style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
+                                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary }}>
+                                            {selectedJob.job_type.replace('_', ' ').toUpperCase()}
+                                        </Text>
+                                    </View>
+                                    <View style={{ backgroundColor: colors.warningLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
+                                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.warning }}>
+                                            {formatSalary(selectedJob)}
+                                        </Text>
+                                    </View>
+                                    {selectedJob.is_remote && (
+                                        <View style={{ backgroundColor: colors.successLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
+                                            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.success }}>REMOTE</Text>
+                                        </View>
+                                    )}
+                                </View>
+
+                                {/* Location */}
+                                <View style={{
+                                    backgroundColor: colors.card,
+                                    padding: 16,
+                                    borderRadius: 12,
+                                    marginBottom: 16,
+                                    borderWidth: 1,
+                                    borderColor: colors.cardBorder
+                                }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 20, marginRight: 12 }}>📍</Text>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
+                                                {selectedJob.location.address}
+                                            </Text>
+                                            {selectedJob.distance_km !== undefined && selectedJob.distance_km > 0 && (
+                                                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+                                                    {formatDistance(selectedJob.distance_km)}
+                                                </Text>
+                                            )}
+                                        </View>
+                                    </View>
+                                </View>
+
+                                {/* Description */}
+                                <View style={{ marginBottom: 16 }}>
+                                    <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>Description</Text>
+                                    <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 22 }}>
+                                        {selectedJob.description}
+                                    </Text>
+                                </View>
+
+                                {/* Required Skills */}
+                                {selectedJob.required_skills.length > 0 && (
+                                    <View style={{ marginBottom: 16 }}>
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>Required Skills</Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                            {selectedJob.required_skills.map(skill => (
+                                                <View key={skill.id} style={{
+                                                    backgroundColor: colors.inputBackground,
+                                                    paddingHorizontal: 12,
+                                                    paddingVertical: 6,
+                                                    borderRadius: 16,
+                                                    borderWidth: 1,
+                                                    borderColor: colors.border
+                                                }}>
+                                                    <Text style={{ fontSize: 12, color: colors.text }}>{skill.name}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Posted Date */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border }}>
+                                    <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                                        Posted: {new Date(selectedJob.posted_at).toLocaleDateString('en-MY', {
+                                            year: 'numeric',
+                                            month: 'long',
+                                            day: 'numeric'
+                                        })}
+                                    </Text>
+                                </View>
+                            </ScrollView>
+
+                            {/* Apply Button */}
+                            <View style={{
+                                padding: 16,
+                                borderTopWidth: 1,
+                                borderTopColor: colors.border,
+                                backgroundColor: colors.background
+                            }}>
+                                <TouchableOpacity
+                                    style={{
+                                        backgroundColor: colors.primary,
+                                        paddingVertical: 16,
+                                        borderRadius: 12,
+                                        alignItems: 'center',
+                                    }}
+                                    onPress={() => setShowApplyModal(true)}
+                                >
+                                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
+                                        {selectedJob.job_type === 'part_time' ? '💰 Bid for this Job' : '📝 Apply Now'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
+                </SafeAreaView>
+            </Modal>
+
+            {/* Apply / Bid Modal */}
+            <Modal visible={showApplyModal} animationType="slide" transparent>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+                >
+                    <View style={{
+                        backgroundColor: colors.background,
+                        borderTopLeftRadius: 20,
+                        borderTopRightRadius: 20,
+                        maxHeight: '80%',
+                    }}>
+                        {/* Header */}
+                        <View style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: 16,
+                            borderBottomWidth: 1,
+                            borderBottomColor: colors.border
+                        }}>
+                            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>
+                                {selectedJob?.job_type === 'part_time' ? 'Submit Your Bid' : 'Apply for Job'}
+                            </Text>
+                            <TouchableOpacity onPress={() => setShowApplyModal(false)}>
+                                <Text style={{ fontSize: 24, color: colors.textMuted }}>×</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={{ padding: 16 }}>
+                            {/* Application Type (for part-time) */}
+                            {selectedJob?.job_type === 'part_time' && (
+                                <View style={{ marginBottom: 20 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                        Application Type
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                padding: 12,
+                                                borderRadius: 12,
+                                                borderWidth: 2,
+                                                borderColor: applicationType === 'apply' ? colors.primary : colors.border,
+                                                backgroundColor: applicationType === 'apply' ? colors.primaryLight : colors.inputBackground,
+                                                alignItems: 'center',
+                                            }}
+                                            onPress={() => setApplicationType('apply')}
+                                        >
+                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>📝</Text>
+                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'apply' ? colors.primary : colors.text }}>
+                                                Apply
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                padding: 12,
+                                                borderRadius: 12,
+                                                borderWidth: 2,
+                                                borderColor: applicationType === 'bid' ? colors.primary : colors.border,
+                                                backgroundColor: applicationType === 'bid' ? colors.primaryLight : colors.inputBackground,
+                                                alignItems: 'center',
+                                            }}
+                                            onPress={() => setApplicationType('bid')}
+                                        >
+                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>💰</Text>
+                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'bid' ? colors.primary : colors.text }}>
+                                                Bid
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Proposed Rate (for bidding) */}
+                            {applicationType === 'bid' && (
+                                <View style={{ marginBottom: 20 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                        Proposed Hourly Rate (RM)
+                                    </Text>
+                                    <TextInput
+                                        style={{
+                                            backgroundColor: colors.inputBackground,
+                                            borderWidth: 1,
+                                            borderColor: colors.border,
+                                            borderRadius: 12,
+                                            padding: 12,
+                                            fontSize: 16,
+                                            color: colors.text,
+                                        }}
+                                        placeholder="e.g. 15"
+                                        placeholderTextColor={colors.textMuted}
+                                        keyboardType="numeric"
+                                        value={proposedRate}
+                                        onChangeText={setProposedRate}
+                                    />
+                                </View>
+                            )}
+
+                            {/* Cover Letter */}
+                            <View style={{ marginBottom: 20 }}>
+                                <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                    Cover Letter (Optional)
+                                </Text>
+                                <TextInput
+                                    style={{
+                                        backgroundColor: colors.inputBackground,
+                                        borderWidth: 1,
+                                        borderColor: colors.border,
+                                        borderRadius: 12,
+                                        padding: 12,
+                                        fontSize: 14,
+                                        color: colors.text,
+                                        height: 120,
+                                        textAlignVertical: 'top',
+                                    }}
+                                    placeholder="Tell the employer why you're a great fit for this job..."
+                                    placeholderTextColor={colors.textMuted}
+                                    multiline
+                                    value={coverLetter}
+                                    onChangeText={setCoverLetter}
+                                />
+                            </View>
+
+                            {/* Submit Button */}
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: colors.primary,
+                                    paddingVertical: 16,
+                                    borderRadius: 12,
+                                    alignItems: 'center',
+                                    marginBottom: 24,
+                                }}
+                                onPress={handleApplyForJob}
+                                disabled={isApplying || (applicationType === 'bid' && !proposedRate)}
+                            >
+                                {isApplying ? (
+                                    <ActivityIndicator color="#FFFFFF" />
+                                ) : (
+                                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
+                                        {applicationType === 'bid' ? 'Submit Bid' : 'Submit Application'}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
             </Modal>
         </SafeAreaView>
     );

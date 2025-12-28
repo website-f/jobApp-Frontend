@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useProfileStore, useColors } from '../../store';
 import skillService, { Skill, SeekerSkill, SeekerCertification } from '../../services/skillService';
+import * as DocumentPicker from 'expo-document-picker';
 
 export default function SkillsScreen() {
     const navigation = useNavigation();
@@ -34,6 +35,7 @@ export default function SkillsScreen() {
         issue_date: new Date().toISOString().split('T')[0],
         credential_id: '',
         credential_url: '',
+        document: null as any,
     });
     const [activeSkillForCert, setActiveSkillForCert] = useState<SeekerSkill | null>(null);
 
@@ -140,6 +142,7 @@ export default function SkillsScreen() {
             issue_date: new Date().toISOString().split('T')[0],
             credential_id: '',
             credential_url: '',
+            document: null,
         });
         setShowCertModal(true);
     };
@@ -151,6 +154,7 @@ export default function SkillsScreen() {
         }
 
         try {
+            // 1. Create Certification
             const newCert = await skillService.addCertification({
                 custom_name: certForm.name,
                 custom_organization: certForm.organization,
@@ -158,11 +162,49 @@ export default function SkillsScreen() {
                 credential_id: certForm.credential_id,
                 credential_url: certForm.credential_url,
             });
-            setMyCerts([...myCerts, newCert]);
+
+            // 2. Upload Document if selected
+            let finalCert = newCert;
+            if (certForm.document) {
+                const formData = new FormData();
+                formData.append('document', {
+                    uri: certForm.document.uri,
+                    name: certForm.document.name,
+                    type: certForm.document.mimeType || 'application/pdf',
+                } as any);
+
+                try {
+                    await skillService.uploadCertificationDocument(newCert.id, formData);
+                    // Refresh to get the updated URL
+                    const updatedCerts = await skillService.getMyCertifications();
+                    const updated = updatedCerts.find(c => c.id === newCert.id);
+                    if (updated) finalCert = updated;
+                } catch (uploadError) {
+                    console.error('Cert upload failed:', uploadError);
+                    Alert.alert('Warning', 'Certification created but file upload failed.');
+                }
+            }
+
+            setMyCerts([...myCerts, finalCert]);
             setShowCertModal(false);
             Alert.alert('Success', 'Certification added!');
         } catch (error: any) {
             Alert.alert('Error', error.response?.data?.detail || 'Failed to add certification');
+        }
+    };
+
+    const pickDocument = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                copyToCacheDirectory: true,
+            });
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                setCertForm({ ...certForm, document: result.assets[0] });
+            }
+        } catch (err) {
+            console.log('Document picker error:', err);
         }
     };
 
@@ -467,6 +509,34 @@ export default function SkillsScreen() {
                             placeholder="YYYY-MM-DD"
                             placeholderTextColor={colors.textMuted}
                         />
+
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 }}>Certificate File (Optional)</Text>
+                        <TouchableOpacity
+                            onPress={pickDocument}
+                            style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                backgroundColor: colors.inputBackground,
+                                borderRadius: 8,
+                                padding: 12,
+                                marginBottom: 20,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                                borderStyle: 'dashed'
+                            }}
+                        >
+                            <Text style={{ fontSize: 20, marginRight: 10 }}>📄</Text>
+                            <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 14, color: colors.text }}>
+                                    {certForm.document ? certForm.document.name : 'Select PDF or Image'}
+                                </Text>
+                            </View>
+                            {certForm.document && (
+                                <TouchableOpacity onPress={() => setCertForm({ ...certForm, document: null })}>
+                                    <Text style={{ color: colors.error, fontWeight: '600' }}>✕</Text>
+                                </TouchableOpacity>
+                            )}
+                        </TouchableOpacity>
 
                         <View style={{ flexDirection: 'row', gap: 12 }}>
                             <TouchableOpacity

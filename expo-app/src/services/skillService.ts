@@ -202,7 +202,13 @@ export const skillService = {
      */
     async uploadCertificationDocument(id: number, file: FormData): Promise<{ document_url: string }> {
         const response = await api.post(`/skills/certifications/my/${id}/upload/`, file, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+            transformRequest: (data, headers) => {
+                // React Native Axios fix for FormData
+                return data;
+            },
         });
         return response.data;
     },

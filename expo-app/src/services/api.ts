@@ -23,6 +23,9 @@ api.interceptors.request.use(
             const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
+                console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url} [Authenticated]`);
+            } else {
+                console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url} [No Auth]`);
             }
         } catch (error) {
             console.error('Error getting token:', error);

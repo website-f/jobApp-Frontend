@@ -105,25 +105,56 @@ export const skillService = {
      * Get all skills
      */
     async getSkills(params?: { category?: number; verified?: boolean }): Promise<Skill[]> {
-        const response = await api.get<Skill[]>('/skills/', { params });
-        return response.data;
+        const response = await api.get('/skills/', { params });
+        const data = response.data;
+        if (Array.isArray(data)) {
+            return data;
+        }
+        if (data && Array.isArray(data.results)) {
+            return data.results;
+        }
+        return [];
     },
 
     /**
      * Search skills by name
      */
     async searchSkills(query: string): Promise<Skill[]> {
-        const response = await api.get<Skill[]>('/skills/search/', {
+        const response = await api.get('/skills/search/', {
             params: { q: query }
         });
-        return response.data;
+        // Handle both array and paginated response formats
+        const data = response.data;
+        if (Array.isArray(data)) {
+            return data;
+        }
+        // Paginated response: { count, next, previous, results }
+        if (data && Array.isArray(data.results)) {
+            return data.results;
+        }
+        return [];
     },
 
     /**
      * Get current user's skills
      */
     async getMySkills(): Promise<SeekerSkill[]> {
-        const response = await api.get<SeekerSkill[]>('/skills/my/');
+        const response = await api.get('/skills/my/');
+        const data = response.data;
+        if (Array.isArray(data)) {
+            return data;
+        }
+        if (data && Array.isArray(data.results)) {
+            return data.results;
+        }
+        return [];
+    },
+
+    /**
+     * Create a custom skill (one not in the catalog)
+     */
+    async createCustomSkill(name: string): Promise<Skill> {
+        const response = await api.post<Skill>('/skills/create/', { name });
         return response.data;
     },
 
@@ -139,7 +170,7 @@ export const skillService = {
      * Update a skill on profile
      */
     async updateSkill(id: number, data: Partial<AddSkillData>): Promise<SeekerSkill> {
-        const response = await api.put<SeekerSkill>(`/skills/my/${id}/`, data);
+        const response = await api.patch<SeekerSkill>(`/skills/my/${id}/`, data);
         return response.data;
     },
 
@@ -186,7 +217,7 @@ export const skillService = {
      * Update a certification on profile
      */
     async updateCertification(id: number, data: Partial<AddCertificationData>): Promise<SeekerCertification> {
-        const response = await api.put<SeekerCertification>(`/skills/certifications/my/${id}/`, data);
+        const response = await api.patch<SeekerCertification>(`/skills/certifications/my/${id}/`, data);
         return response.data;
     },
 

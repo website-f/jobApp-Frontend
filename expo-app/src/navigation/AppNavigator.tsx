@@ -2,7 +2,10 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { ActivityIndicator, View, Text } from 'react-native';
+import { ActivityIndicator, View, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -15,12 +18,28 @@ import SkillsScreen from '../screens/profile/SkillsScreen';
 import ResumesScreen from '../screens/profile/ResumesScreen';
 import ResumeAnalysisScreen from '../screens/profile/ResumeAnalysisScreen';
 import BrowseJobsScreen from '../screens/main/BrowseJobsScreen';
-import EmployerJobsScreen from '../screens/main/EmployerJobsScreen'; // Import
-import PostJobScreen from '../screens/main/PostJobScreen'; // Import
+import EmployerJobsScreen from '../screens/main/EmployerJobsScreen';
+import PostJobScreen from '../screens/main/PostJobScreen';
+import AIRecommendationsScreen from '../screens/main/AIRecommendationsScreen';
 import AvailabilityScreen from '../screens/profile/AvailabilityScreen';
+import LocationScreen from '../screens/profile/LocationScreen';
+import MyApplicationsScreen from '../screens/main/MyApplicationsScreen';
+import NotificationsScreen from '../screens/main/NotificationsScreen';
+import ConversationsScreen from '../screens/messaging/ConversationsScreen';
+import ChatScreen from '../screens/messaging/ChatScreen';
+
+// New Feature Screens
+import { ClockInOutScreen, WorkHistoryScreen } from '../screens/work';
+import { WalletScreen } from '../screens/wallet';
+import { SubscriptionScreen } from '../screens/subscription';
+import { RatingScreen } from '../screens/ratings';
+import { PenaltyScreen } from '../screens/penalties';
 
 // Store
 import { useAuthStore, useThemeStore, useColors } from '../store';
+
+// i18n
+import { useTranslation } from '../hooks';
 
 // Types
 export type RootStackParamList = {
@@ -31,7 +50,20 @@ export type RootStackParamList = {
     Resumes: undefined;
     ResumeAnalysis: { uuid: string };
     Availability: undefined;
-    PostJob: undefined; // Add PostJob
+    Location: undefined;
+    PostJob: { editJob?: any } | undefined;
+    MyApplications: undefined;
+    AIRecommendations: undefined;
+    Notifications: undefined;
+    Conversations: undefined;
+    Chat: { conversationId: number; conversation?: any };
+    // New Feature Routes
+    ClockInOut: { applicationId?: number } | undefined;
+    WorkHistory: undefined;
+    Wallet: undefined;
+    Subscription: undefined;
+    Ratings: undefined;
+    Penalties: undefined;
 };
 
 export type AuthStackParamList = {
@@ -41,11 +73,13 @@ export type AuthStackParamList = {
 };
 
 export type MainTabParamList = {
-    Home: undefined;
-    Search: undefined; // Reused for "Jobs" tab name
-    EmployerJobs: undefined;
+    Jobs: undefined; // Jobs/Browse tab
+    Messages: undefined;
+    Home: undefined; // Center floating button
     Profile: undefined;
     Account: undefined;
+    // Employer specific
+    EmployerJobs: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -69,94 +103,163 @@ function AuthNavigator() {
 
 
 
-// Main Tab Navigator
+// Main Tab Navigator - Native style with floating Home button
 function MainNavigator() {
     const { isDark } = useThemeStore();
     const colors = useColors();
-    const { user } = useAuthStore(); // Get user to check role
+    const { user } = useAuthStore();
+    const { t } = useTranslation();
     const isEmployer = user?.user_type === 'employer';
+    const insets = useSafeAreaInsets();
+
+    // Native tab bar heights
+    const TAB_BAR_HEIGHT = Platform.select({ ios: 50, android: 60, default: 56 });
+    const bottomInset = Platform.OS === 'ios' ? insets.bottom : 0;
 
     return (
         <MainTab.Navigator
+            initialRouteName="Home"
             screenOptions={{
                 headerShown: false,
                 tabBarStyle: {
                     backgroundColor: colors.tabBar,
                     borderTopColor: colors.tabBarBorder,
-                    borderTopWidth: 1,
-                    paddingTop: 8,
-                    paddingBottom: 8,
-                    height: 60,
+                    borderTopWidth: Platform.OS === 'ios' ? 0.5 : 1,
+                    height: TAB_BAR_HEIGHT + (Platform.OS === 'ios' ? bottomInset : 12),
+                    paddingBottom: Platform.OS === 'ios' ? bottomInset : 8,
+                    paddingTop: Platform.OS === 'ios' ? 8 : 6,
+                    elevation: Platform.OS === 'android' ? 8 : 0,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: -1 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 4,
                 },
                 tabBarActiveTintColor: colors.primary,
                 tabBarInactiveTintColor: colors.textMuted,
+                tabBarShowLabel: true,
                 tabBarLabelStyle: {
-                    fontSize: 12,
-                    fontWeight: '600',
+                    fontSize: Platform.OS === 'ios' ? 10 : 11,
+                    fontWeight: '500',
+                    marginTop: Platform.OS === 'ios' ? 2 : 0,
+                    marginBottom: Platform.OS === 'android' ? 4 : 2,
+                },
+                tabBarIconStyle: {
+                    marginTop: Platform.OS === 'ios' ? 2 : 2,
                 },
             }}
         >
-            <MainTab.Screen
-                name="Home"
-                component={HomeScreen}
-                options={{
-                    tabBarLabel: 'Home',
-                    tabBarIcon: ({ color }) => <TabIcon name="home" color={color} />,
-                }}
-            />
-
-            {/* Conditionally render Jobs screen */}
+            {/* Jobs */}
             {isEmployer ? (
                 <MainTab.Screen
                     name="EmployerJobs"
                     component={EmployerJobsScreen}
                     options={{
-                        tabBarLabel: 'My Jobs',
-                        tabBarIcon: ({ color }) => <TabIcon name="search" color={color} />,
+                        tabBarLabel: t('jobs.title'),
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons name={focused ? 'briefcase' : 'briefcase-outline'} size={24} color={color} />
+                        ),
                     }}
                 />
             ) : (
                 <MainTab.Screen
-                    name="Search"
+                    name="Jobs"
                     component={BrowseJobsScreen}
                     options={{
-                        tabBarLabel: 'Jobs',
-                        tabBarIcon: ({ color }) => <TabIcon name="search" color={color} />,
+                        tabBarLabel: t('jobs.title'),
+                        tabBarIcon: ({ color, focused }) => (
+                            <Ionicons name={focused ? 'briefcase' : 'briefcase-outline'} size={24} color={color} />
+                        ),
                     }}
                 />
             )}
 
+            {/* Messages */}
+            <MainTab.Screen
+                name="Messages"
+                component={ConversationsScreen}
+                options={{
+                    tabBarLabel: t('nav.messages'),
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={24} color={color} />
+                    ),
+                }}
+            />
+
+            {/* Center - Home (Floating) */}
+            <MainTab.Screen
+                name="Home"
+                component={HomeScreen}
+                options={{
+                    tabBarLabel: '',
+                    tabBarIcon: ({ focused }) => (
+                        <FloatingHomeButton colors={colors} focused={focused} />
+                    ),
+                }}
+            />
+
+            {/* Profile */}
             <MainTab.Screen
                 name="Profile"
                 component={ProfileScreen}
                 options={{
-                    tabBarLabel: 'Profile',
-                    tabBarIcon: ({ color }) => <TabIcon name="profile" color={color} />,
+                    tabBarLabel: t('nav.profile'),
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons name={focused ? 'person' : 'person-outline'} size={24} color={color} />
+                    ),
                 }}
             />
+
+            {/* Account */}
             <MainTab.Screen
                 name="Account"
                 component={AccountScreen}
                 options={{
-                    tabBarLabel: 'Account',
-                    tabBarIcon: ({ color }) => <TabIcon name="account" color={color} />,
+                    tabBarLabel: t('settings.title'),
+                    tabBarIcon: ({ color, focused }) => (
+                        <Ionicons name={focused ? 'settings' : 'settings-outline'} size={24} color={color} />
+                    ),
                 }}
             />
         </MainTab.Navigator>
     );
 }
 
-// Simple Tab Icon Component
-function TabIcon({ name, color }: { name: string; color: string }) {
-    const icons: Record<string, string> = {
-        home: '🏠',
-        search: '💼',
-        profile: '👤',
-        account: '⚙️',
-    };
+// Floating Home Button Component
+function FloatingHomeButton({ colors, focused }: { colors: any; focused: boolean }) {
+    // Increased size for better visibility and touch target
+    const buttonSize = Platform.OS === 'ios' ? 60 : 64;
+    const iconSize = Platform.OS === 'ios' ? 28 : 30;
+
     return (
-        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ fontSize: 20 }}>{icons[name] || '•'}</Text>
+        <View
+            style={{
+                position: 'absolute',
+                top: Platform.OS === 'ios' ? -24 : -28,
+                alignItems: 'center',
+                justifyContent: 'center',
+            }}
+        >
+            <LinearGradient
+                colors={[colors.gradientStart || '#0EA5E9', colors.gradientEnd || '#8B5CF6']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                    width: buttonSize,
+                    height: buttonSize,
+                    borderRadius: buttonSize / 2,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    shadowColor: colors.primary || '#0EA5E9',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.4,
+                    shadowRadius: 10,
+                    elevation: 12,
+                    borderWidth: Platform.OS === 'ios' ? 4 : 5,
+                    borderColor: colors.tabBar || colors.background,
+                }}
+            >
+                <Ionicons name="home" size={iconSize} color="#FFFFFF" />
+            </LinearGradient>
         </View>
     );
 }
@@ -189,7 +292,20 @@ export default function AppNavigator() {
                         <RootStack.Screen name="Resumes" component={ResumesScreen} />
                         <RootStack.Screen name="ResumeAnalysis" component={ResumeAnalysisScreen} />
                         <RootStack.Screen name="Availability" component={AvailabilityScreen} />
+                        <RootStack.Screen name="Location" component={LocationScreen} />
                         <RootStack.Screen name="PostJob" component={PostJobScreen} />
+                        <RootStack.Screen name="MyApplications" component={MyApplicationsScreen} />
+                        <RootStack.Screen name="AIRecommendations" component={AIRecommendationsScreen} />
+                        <RootStack.Screen name="Notifications" component={NotificationsScreen} />
+                        <RootStack.Screen name="Conversations" component={ConversationsScreen} />
+                        <RootStack.Screen name="Chat" component={ChatScreen} />
+                        {/* New Feature Screens */}
+                        <RootStack.Screen name="ClockInOut" component={ClockInOutScreen} />
+                        <RootStack.Screen name="WorkHistory" component={WorkHistoryScreen} />
+                        <RootStack.Screen name="Wallet" component={WalletScreen} />
+                        <RootStack.Screen name="Subscription" component={SubscriptionScreen} />
+                        <RootStack.Screen name="Ratings" component={RatingScreen} />
+                        <RootStack.Screen name="Penalties" component={PenaltyScreen} />
                     </>
                 ) : (
                     <RootStack.Screen name="Auth" component={AuthNavigator} />

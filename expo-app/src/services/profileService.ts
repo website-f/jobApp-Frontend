@@ -98,6 +98,37 @@ export interface Availability {
     timezone?: string;
 }
 
+export interface SeekerAddress {
+    id: number;
+    label: string;
+    address_type: 'home' | 'work' | 'other';
+    address_line_1: string;
+    address_line_2?: string;
+    city: string;
+    state?: string;
+    country: string;
+    postal_code?: string;
+    latitude?: number;
+    longitude?: number;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CreateAddressData {
+    label: string;
+    address_type?: 'home' | 'work' | 'other';
+    address_line_1: string;
+    address_line_2?: string;
+    city: string;
+    state?: string;
+    country: string;
+    postal_code?: string;
+    latitude?: number;
+    longitude?: number;
+    is_active?: boolean;
+}
+
 export interface FullProfile {
     user: any;
     profile: SeekerProfile | EmployerProfile;
@@ -248,6 +279,40 @@ export const profileService = {
     async updateAvailability(schedules: Partial<Availability>[]): Promise<{ schedules: Availability[] }> {
         const response = await api.post('/profile/availability/bulk_update/', { schedules });
         return response.data;
+    },
+
+    // Address CRUD
+    async getAddresses(): Promise<SeekerAddress[]> {
+        const response = await api.get('/profile/addresses/');
+        // Handle different response formats (array vs paginated/object)
+        if (Array.isArray(response.data)) {
+            return response.data;
+        }
+        // If paginated response
+        if (response.data && Array.isArray(response.data.results)) {
+            return response.data.results;
+        }
+        // Default to empty array
+        return [];
+    },
+
+    async createAddress(data: CreateAddressData): Promise<SeekerAddress> {
+        const response = await api.post<SeekerAddress>('/profile/addresses/', data);
+        return response.data;
+    },
+
+    async updateAddress(id: number, data: Partial<CreateAddressData>): Promise<SeekerAddress> {
+        const response = await api.patch<SeekerAddress>(`/profile/addresses/${id}/`, data);
+        return response.data;
+    },
+
+    async deleteAddress(id: number): Promise<void> {
+        await api.delete(`/profile/addresses/${id}/`);
+    },
+
+    async setActiveAddress(id: number): Promise<SeekerAddress> {
+        const response = await api.post<{ address: SeekerAddress }>(`/profile/addresses/${id}/set_active/`);
+        return response.data.address;
     },
 
     // Company Management

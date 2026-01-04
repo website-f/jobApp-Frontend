@@ -3,6 +3,7 @@
     "name": "JobApp",
     "slug": "jobapp",
     "version": "1.0.0",
+    "scheme": "jobapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +20,10 @@
         "NSLocationAlwaysUsageDescription": "JobApp needs your location to show jobs near you even when the app is in the background."
       },
       "config": {
-        "usesNonExemptEncryption": false
+        "usesNonExemptEncryption": false,
+        "googleSignIn": {
+          "reservedClientId": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com"
+        }
       }
     },
     "android": {
@@ -38,12 +42,17 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-localization"
     ],
     "extra": {
       "eas": {
         "projectId": "62582829-a0f5-422f-bc49-c5a972c543c1"
-      }
+      },
+      "googleWebClientId": "268744551408-ecqo5l2dn702t61q5m70ptfpj70q7vds.apps.googleusercontent.com",
+      "googleAndroidClientId": "YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com",
+      "googleIosClientId": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com"
     }
   }
 }

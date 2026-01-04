@@ -126,7 +126,7 @@ export default function EmployerJobsScreen() {
     };
 
     const handleEditJob = (job: Job) => {
-        Alert.alert('Info', 'To edit this job, please delete it and post a new one for now.');
+        navigation.navigate('PostJob', { editJob: job });
     };
 
     const renderJobItem = ({ item }: { item: Job }) => (

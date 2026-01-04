@@ -1,44 +1,108 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-// For Android emulator, use 10.0.2.2 to access host machine
-// For iOS simulator, localhost works fine
-// For physical devices, use your machine's actual IP address (e.g., 192.168.x.x)
-const DEV_MACHINE_IP = '192.168.1.100'; // CHANGE THIS to your computer's local IP if using physical device
+// =============================================================================
+// ENVIRONMENT CONFIGURATION
+// =============================================================================
+// Set this to 'local' to use local Django server, 'production' for live server
+// You can also override this with EXPO_PUBLIC_API_ENV environment variable
+const DEFAULT_ENV: 'local' | 'production' = 'production';
 
-const getApiBaseUrl = () => {
-    // 1. If explicit environment variable is set/overridden, use it first
+// Your local machine's IP address (for physical device testing)
+// Find it using: ipconfig (Windows) or ifconfig (Mac/Linux)
+const LOCAL_MACHINE_IP = '192.168.1.100';
+
+// Production API URL
+const PRODUCTION_API_URL = 'https://jobappdemo.pythonanywhere.com/api/v1';
+
+// Tunnel API URL (when using ngrok for Django backend)
+// Run: ngrok http 8000 - then paste the URL here
+const TUNNEL_API_URL = ''; // e.g., 'https://abc123.ngrok.io/api/v1'
+
+// Local development port
+const LOCAL_PORT = '8000';
+// =============================================================================
+
+const getEnvironment = (): 'local' | 'production' => {
+    // Check for explicit environment override
+    if (process.env.EXPO_PUBLIC_API_ENV === 'production') return 'production';
+    if (process.env.EXPO_PUBLIC_API_ENV === 'local') return 'local';
+
+    // In production builds, always use production API
+    if (!__DEV__) return 'production';
+
+    // Otherwise use default
+    return DEFAULT_ENV;
+};
+
+const getLocalApiUrl = () => {
+    // Check for explicit URL override first
     if (process.env.EXPO_PUBLIC_API_URL) {
         return process.env.EXPO_PUBLIC_API_URL;
     }
 
-    // 2. PRODUCTION: If not in development mode, use the live server
-    if (!__DEV__) {
-        return 'https://jobappdemo.pythonanywhere.com/api/v1';
-    }
+    // Try to get the debugger host from Expo (works for Expo Go and dev builds)
+    const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
 
-    // 3. DEVELOPMENT: Use local machine
     if (Platform.OS === 'android') {
         // Android emulator uses 10.0.2.2 to access host localhost
-        return 'http://10.0.2.2:8000/api/v1';
+        // Physical devices need the actual IP
+        if (debuggerHost && debuggerHost !== 'localhost') {
+            return `http://${debuggerHost}:${LOCAL_PORT}/api/v1`;
+        }
+        return `http://10.0.2.2:${LOCAL_PORT}/api/v1`;
     }
 
     if (Platform.OS === 'ios') {
         // iOS simulator can use localhost
-        return 'http://localhost:8000/api/v1';
+        // Physical devices need the actual IP
+        if (debuggerHost && debuggerHost !== 'localhost') {
+            return `http://${debuggerHost}:${LOCAL_PORT}/api/v1`;
+        }
+        return `http://localhost:${LOCAL_PORT}/api/v1`;
     }
 
-    // Web or other
-    return 'http://localhost:8000/api/v1';
+    // Web - use localhost or debugger host
+    if (debuggerHost) {
+        return `http://${debuggerHost}:${LOCAL_PORT}/api/v1`;
+    }
+    return `http://localhost:${LOCAL_PORT}/api/v1`;
 };
+
+const getApiBaseUrl = () => {
+    const env = getEnvironment();
+
+    if (env === 'production') {
+        return PRODUCTION_API_URL;
+    }
+
+    return getLocalApiUrl();
+};
+
+// Get the current API URL
+const apiBaseUrl = getApiBaseUrl();
+const currentEnv = getEnvironment();
+
+// Log the API configuration in development
+if (__DEV__) {
+    console.log('=== API Configuration ===');
+    console.log(`Environment: ${currentEnv}`);
+    console.log(`API Base URL: ${apiBaseUrl}`);
+    console.log('=========================');
+}
 
 // App Configuration
 const config = {
     name: 'JobApp',
     version: '1.0.0',
 
+    // Environment
+    env: currentEnv,
+    isDev: __DEV__,
+
     // API Configuration
     api: {
-        baseUrl: process.env.EXPO_PUBLIC_API_URL || getApiBaseUrl(),
+        baseUrl: apiBaseUrl,
         timeout: 30000,
     },
 

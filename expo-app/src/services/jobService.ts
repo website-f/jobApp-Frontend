@@ -1,6 +1,17 @@
 import api from './api';
 
 // Types
+export interface JobShift {
+    id: number;
+    date?: string; // For specific dates
+    day_of_week?: number; // 0-6 for recurring (0=Monday)
+    start_time: string;
+    end_time: string;
+    headcount_needed?: number;
+    hourly_rate?: number;
+    completion_reward?: number;
+}
+
 export interface Job {
     id: number;
     uuid: string;
@@ -29,6 +40,7 @@ export interface Job {
     is_active: boolean;
     distance_km?: number;
     match_score?: number;
+    shifts?: JobShift[];
 }
 
 export interface JobSearchFilters {
@@ -51,6 +63,92 @@ export interface JobSearchResponse {
         next?: string;
         previous?: string;
     };
+}
+
+// AI Recommendation Types
+export interface AIJobRecommendation {
+    job: {
+        id: number;
+        title: string;
+        company_name: string;
+        location: string;
+        job_type: string;
+        salary_amount: string | null;
+        salary_currency: string;
+        description: string;
+        created_at: string;
+    };
+    match_score: number;
+    skill_match: number;
+    location_match: number;
+    rate_match: number;
+    matched_skills: string[];
+    missing_skills: string[];
+    match_reasons: string[];
+}
+
+export interface AIRecommendationResponse {
+    success: boolean;
+    error?: string;
+    data: {
+        count: number;
+        recommendations: AIJobRecommendation[];
+        ai_powered: boolean;
+        algorithm: string;
+    } | null;
+}
+
+export interface JobMatchScoreResponse {
+    success: boolean;
+    error?: string;
+    data: {
+        job_id: number;
+        job_title: string;
+        overall_score: number;
+        skill_match: number;
+        location_match: number;
+        rate_match: number;
+        recency_score: number;
+        text_similarity: number;
+        matched_skills: string[];
+        missing_skills: string[];
+        ai_powered: boolean;
+    } | null;
+}
+
+export interface AICandidateRecommendation {
+    seeker: {
+        id: number;
+        full_name: string;
+        headline: string;
+        avatar_url: string | null;
+        location: string;
+        hourly_rate_min: string | null;
+        hourly_rate_max: string | null;
+        rate_currency: string;
+        availability_status: string;
+        overall_rating: number | null;
+        total_jobs_completed: number;
+    };
+    match_score: number;
+    skill_match: number;
+    location_match: number;
+    matched_skills: string[];
+    missing_skills: string[];
+    match_reasons: string[];
+}
+
+export interface AICandidateResponse {
+    success: boolean;
+    error?: string;
+    data: {
+        job_id: number;
+        job_title: string;
+        count: number;
+        candidates: AICandidateRecommendation[];
+        ai_powered: boolean;
+        algorithm: string;
+    } | null;
 }
 
 // Mock data for development (using Malaysian locations)
@@ -324,6 +422,16 @@ export const jobService = {
         }
     },
 
+    async updateJob(jobId: number, jobData: any): Promise<Job> {
+        try {
+            const response = await api.patch(`/jobs/${jobId}/`, jobData);
+            return mapJobFromApi(response.data);
+        } catch (error: any) {
+            console.error('updateJob - error:', error.response?.status, error.response?.data);
+            throw error;
+        }
+    },
+
     async deleteJob(jobId: number): Promise<void> {
         await api.delete(`/jobs/${jobId}/`);
     },
@@ -389,6 +497,75 @@ export const jobService = {
     async updateApplicationStatus(applicationId: number, status: string, notes?: string): Promise<void> {
         await api.post(`/jobs/applications/${applicationId}/update_status/`, { status, notes });
     },
+
+    // ==========================================
+    // AI-Powered Job Recommendations
+    // ==========================================
+
+    /**
+     * Get AI-powered job recommendations for the current seeker
+     * Uses TF-IDF + weighted multi-factor scoring algorithm
+     */
+    async getAIRecommendations(limit: number = 20, minScore: number = 30): Promise<AIRecommendationResponse> {
+        try {
+            const response = await api.get('/jobs/recommendations/', {
+                params: { limit, min_score: minScore }
+            });
+            return {
+                success: true,
+                data: response.data,
+            };
+        } catch (error: any) {
+            console.error('AI Recommendations error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error || 'Failed to get recommendations',
+                data: null,
+            };
+        }
+    },
+
+    /**
+     * Get AI match score for a specific job
+     */
+    async getJobMatchScore(jobId: number): Promise<JobMatchScoreResponse> {
+        try {
+            const response = await api.get(`/jobs/${jobId}/match-score/`);
+            return {
+                success: true,
+                data: response.data,
+            };
+        } catch (error: any) {
+            console.error('Job match score error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error || 'Failed to get match score',
+                data: null,
+            };
+        }
+    },
+
+    /**
+     * Get AI-recommended candidates for a job (Employer only)
+     */
+    async getAICandidates(jobId: number, limit: number = 20, minScore: number = 30): Promise<AICandidateResponse> {
+        try {
+            const response = await api.get(`/jobs/${jobId}/candidates/`, {
+                params: { limit, min_score: minScore }
+            });
+            return {
+                success: true,
+                data: response.data,
+            };
+        } catch (error: any) {
+            console.error('AI Candidates error:', error.response?.data || error.message);
+            return {
+                success: false,
+                error: error.response?.data?.error || 'Failed to get candidate recommendations',
+                data: null,
+            };
+        }
+    },
 };
 
 // Helper to map API response to Frontend model
@@ -396,6 +573,18 @@ function mapJobFromApi(j: any): Job {
     // Safety check for ID
     const jobId = j.id || 0;
     const jobUuid = j.uuid ? j.uuid : (jobId ? jobId.toString() : `temp-${Date.now()}`);
+
+    // Map shifts if available
+    const shifts: JobShift[] = j.shifts ? j.shifts.map((s: any) => ({
+        id: s.id,
+        date: s.date || undefined,
+        day_of_week: s.day_of_week !== null && s.day_of_week !== undefined ? s.day_of_week : undefined,
+        start_time: s.start_time || '',
+        end_time: s.end_time || '',
+        headcount_needed: s.headcount_needed || undefined,
+        hourly_rate: s.hourly_rate ? Number(s.hourly_rate) : undefined,
+        completion_reward: s.completion_reward ? Number(s.completion_reward) : undefined,
+    })) : [];
 
     return {
         id: jobId,
@@ -421,6 +610,7 @@ function mapJobFromApi(j: any): Job {
         posted_at: j.created_at || new Date().toISOString(),
         is_active: j.status === 'published',
         distance_km: 0,
+        shifts: shifts.length > 0 ? shifts : undefined,
     };
 }
 

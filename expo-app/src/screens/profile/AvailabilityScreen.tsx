@@ -8,10 +8,12 @@ import {
     ActivityIndicator,
     Alert,
     Dimensions,
+    Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useColors } from '../../store';
+import { Ionicons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_SIZE = (SCREEN_WIDTH - 48) / 7;
@@ -26,6 +28,18 @@ interface DayAvailability {
     date: string;
     isAvailable: boolean;
     timeSlots: TimeSlot[];
+}
+
+interface WeekdayDefault {
+    enabled: boolean;
+    start: string;
+    end: string;
+}
+
+interface AppliedJob {
+    date: string;
+    jobTitle: string;
+    status: string;
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -55,6 +69,23 @@ export default function AvailabilityScreen() {
     const [tempStartTime, setTempStartTime] = useState('09:00');
     const [tempEndTime, setTempEndTime] = useState('17:00');
     const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+
+    // Weekly default settings - individual day configuration
+    const [weeklyDefaults, setWeeklyDefaults] = useState<WeekdayDefault[]>([
+        { enabled: false, start: '09:00', end: '17:00' }, // Sunday
+        { enabled: true, start: '09:00', end: '17:00' },  // Monday
+        { enabled: true, start: '09:00', end: '17:00' },  // Tuesday
+        { enabled: true, start: '09:00', end: '17:00' },  // Wednesday
+        { enabled: true, start: '09:00', end: '17:00' },  // Thursday
+        { enabled: true, start: '09:00', end: '17:00' },  // Friday
+        { enabled: false, start: '09:00', end: '17:00' }, // Saturday
+    ]);
+    const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+    const [editingWeekday, setEditingWeekday] = useState<number | null>(null);
+
+    // Applied jobs for showing busy dates
+    const [appliedJobs, setAppliedJobs] = useState<AppliedJob[]>([]);
+    const [showAppliedDates, setShowAppliedDates] = useState(true);
 
     // Generate calendar days
     const getCalendarDays = () => {
@@ -341,20 +372,33 @@ export default function AvailabilityScreen() {
         );
     };
 
+    // Check if date has applied job
+    const getAppliedJobForDate = (dateStr: string): AppliedJob | undefined => {
+        return appliedJobs.find(job => job.date === dateStr);
+    };
+
     const getDayStyle = (date: Date) => {
         const dateStr = formatDate(date);
         const dayInfo = availability.get(dateStr);
         const isSelected = selectedDates.has(dateStr);
+        const appliedJob = showAppliedDates ? getAppliedJobForDate(dateStr) : undefined;
 
         let backgroundColor = 'transparent';
         let borderColor = 'transparent';
         let textColor = colors.text;
+        let hasJob = false;
 
         if (isPast(date)) {
             textColor = colors.textMuted;
         } else if (isSelected) {
             backgroundColor = colors.primary;
             textColor = '#FFFFFF';
+        } else if (appliedJob) {
+            // Applied job takes priority - show in warning color
+            backgroundColor = '#FEF3C7'; // amber light
+            borderColor = '#F59E0B'; // amber
+            textColor = '#B45309';
+            hasJob = true;
         } else if (dayInfo) {
             if (dayInfo.isAvailable) {
                 backgroundColor = colors.successLight;
@@ -371,7 +415,7 @@ export default function AvailabilityScreen() {
             borderColor = colors.primary;
         }
 
-        return { backgroundColor, borderColor, textColor };
+        return { backgroundColor, borderColor, textColor, hasJob, appliedJob };
     };
 
     const calendarDays = getCalendarDays();
@@ -419,20 +463,60 @@ export default function AvailabilityScreen() {
                 </View>
 
                 {/* Legend */}
-                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: colors.successLight, borderWidth: 1, borderColor: colors.success }} />
                         <Text style={{ fontSize: 11, color: colors.textSecondary }}>Available</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: colors.errorLight, borderWidth: 1, borderColor: colors.error }} />
-                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>Not Available</Text>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>Unavailable</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: '#FEF3C7', borderWidth: 1, borderColor: '#F59E0B' }} />
+                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>Applied Job</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: colors.primary }} />
                         <Text style={{ fontSize: 11, color: colors.textSecondary }}>Today</Text>
                     </View>
                 </View>
+
+                {/* Weekly Default Settings Card */}
+                <TouchableOpacity
+                    style={{
+                        backgroundColor: colors.card,
+                        borderRadius: 12,
+                        padding: 16,
+                        marginBottom: 16,
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                    }}
+                    onPress={() => setShowWeeklyModal(true)}
+                >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <View style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 12,
+                            backgroundColor: colors.primaryLight,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <Ionicons name="calendar-outline" size={24} color={colors.primary} />
+                        </View>
+                        <View>
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text }}>Weekly Schedule</Text>
+                            <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                                Set default hours for each day
+                            </Text>
+                        </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                </TouchableOpacity>
 
                 {/* Calendar Card */}
                 <View style={{
@@ -485,7 +569,7 @@ export default function AvailabilityScreen() {
                                 );
                             }
 
-                            const { backgroundColor, borderColor, textColor } = getDayStyle(date);
+                            const { backgroundColor, borderColor, textColor, hasJob, appliedJob } = getDayStyle(date);
                             const dateStr = formatDate(date);
                             const dayInfo = availability.get(dateStr);
                             const slotsCount = dayInfo?.isAvailable ? dayInfo.timeSlots.length : 0;
@@ -520,12 +604,26 @@ export default function AvailabilityScreen() {
                                         }}>
                                             {date.getDate()}
                                         </Text>
+                                        {hasJob && (
+                                            <View style={{
+                                                position: 'absolute',
+                                                bottom: 2,
+                                                width: 6,
+                                                height: 6,
+                                                borderRadius: 3,
+                                                backgroundColor: '#F59E0B',
+                                            }} />
+                                        )}
                                     </View>
-                                    {slotsCount > 0 && (
+                                    {hasJob ? (
+                                        <Text style={{ fontSize: 8, color: '#B45309', marginTop: 2 }}>
+                                            Job
+                                        </Text>
+                                    ) : slotsCount > 0 ? (
                                         <Text style={{ fontSize: 8, color: colors.success, marginTop: 2 }}>
                                             {slotsCount} slot{slotsCount > 1 ? 's' : ''}
                                         </Text>
-                                    )}
+                                    ) : null}
                                 </TouchableOpacity>
                             );
                         })}
@@ -942,6 +1040,192 @@ export default function AvailabilityScreen() {
                                 </View>
                             </ScrollView>
                         )}
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Weekly Schedule Modal */}
+            <Modal visible={showWeeklyModal} animationType="slide" transparent>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                    <View style={{
+                        backgroundColor: colors.background,
+                        borderTopLeftRadius: 24,
+                        borderTopRightRadius: 24,
+                        padding: 24,
+                        maxHeight: '80%',
+                    }}>
+                        <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                            <View style={{ width: 40, height: 4, backgroundColor: colors.textMuted, borderRadius: 2 }} />
+                        </View>
+
+                        <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 4 }}>
+                            Weekly Schedule
+                        </Text>
+                        <Text style={{ fontSize: 12, color: colors.textSecondary, textAlign: 'center', marginBottom: 20 }}>
+                            Set your default availability for each day of the week
+                        </Text>
+
+                        <ScrollView showsVerticalScrollIndicator={false}>
+                            {WEEKDAYS.map((day, index) => {
+                                const dayDefault = weeklyDefaults[index];
+                                const fullDayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][index];
+
+                                return (
+                                    <View
+                                        key={day}
+                                        style={{
+                                            backgroundColor: colors.card,
+                                            borderRadius: 12,
+                                            padding: 14,
+                                            marginBottom: 10,
+                                            borderWidth: 1,
+                                            borderColor: dayDefault.enabled ? colors.success : colors.cardBorder,
+                                        }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                                <View style={{
+                                                    width: 40,
+                                                    height: 40,
+                                                    borderRadius: 10,
+                                                    backgroundColor: dayDefault.enabled ? colors.successLight : colors.surfaceHover,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }}>
+                                                    <Text style={{
+                                                        fontSize: 12,
+                                                        fontWeight: '700',
+                                                        color: dayDefault.enabled ? colors.success : colors.textMuted,
+                                                    }}>
+                                                        {day}
+                                                    </Text>
+                                                </View>
+                                                <View>
+                                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
+                                                        {fullDayName}
+                                                    </Text>
+                                                    {dayDefault.enabled && (
+                                                        <Text style={{ fontSize: 12, color: colors.success }}>
+                                                            {dayDefault.start} - {dayDefault.end}
+                                                        </Text>
+                                                    )}
+                                                </View>
+                                            </View>
+                                            <Switch
+                                                value={dayDefault.enabled}
+                                                onValueChange={(value) => {
+                                                    const newDefaults = [...weeklyDefaults];
+                                                    newDefaults[index] = { ...newDefaults[index], enabled: value };
+                                                    setWeeklyDefaults(newDefaults);
+                                                }}
+                                                trackColor={{ false: colors.surfaceHover, true: colors.success + '80' }}
+                                                thumbColor={dayDefault.enabled ? colors.success : colors.textMuted}
+                                            />
+                                        </View>
+
+                                        {/* Time selection when enabled */}
+                                        {dayDefault.enabled && (
+                                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+                                                <TouchableOpacity
+                                                    style={{
+                                                        flex: 1,
+                                                        backgroundColor: colors.inputBackground,
+                                                        borderRadius: 8,
+                                                        padding: 10,
+                                                        alignItems: 'center',
+                                                    }}
+                                                    onPress={() => {
+                                                        // Simple time picker - cycle through common times
+                                                        const times = ['06:00', '07:00', '08:00', '09:00', '10:00'];
+                                                        const currentIdx = times.indexOf(dayDefault.start);
+                                                        const nextIdx = (currentIdx + 1) % times.length;
+                                                        const newDefaults = [...weeklyDefaults];
+                                                        newDefaults[index] = { ...newDefaults[index], start: times[nextIdx] };
+                                                        setWeeklyDefaults(newDefaults);
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 10, color: colors.textMuted }}>Start</Text>
+                                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{dayDefault.start}</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={{
+                                                        flex: 1,
+                                                        backgroundColor: colors.inputBackground,
+                                                        borderRadius: 8,
+                                                        padding: 10,
+                                                        alignItems: 'center',
+                                                    }}
+                                                    onPress={() => {
+                                                        // Simple time picker - cycle through common times
+                                                        const times = ['14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
+                                                        const currentIdx = times.indexOf(dayDefault.end);
+                                                        const nextIdx = (currentIdx + 1) % times.length;
+                                                        const newDefaults = [...weeklyDefaults];
+                                                        newDefaults[index] = { ...newDefaults[index], end: times[nextIdx] };
+                                                        setWeeklyDefaults(newDefaults);
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 10, color: colors.textMuted }}>End</Text>
+                                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{dayDefault.end}</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </View>
+                                );
+                            })}
+
+                            {/* Apply to Calendar Button */}
+                            <TouchableOpacity
+                                style={{
+                                    backgroundColor: colors.primary,
+                                    paddingVertical: 14,
+                                    borderRadius: 12,
+                                    alignItems: 'center',
+                                    marginTop: 10,
+                                    marginBottom: 20,
+                                }}
+                                onPress={() => {
+                                    // Apply weekly defaults to the current month
+                                    const year = currentMonth.getFullYear();
+                                    const month = currentMonth.getMonth();
+                                    const lastDay = new Date(year, month + 1, 0).getDate();
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+
+                                    const newAvailability = new Map(availability);
+                                    for (let i = 1; i <= lastDay; i++) {
+                                        const date = new Date(year, month, i);
+                                        if (date < today) continue;
+                                        const dow = date.getDay();
+                                        const dayDefault = weeklyDefaults[dow];
+                                        const dateStr = formatDate(date);
+
+                                        if (dayDefault.enabled) {
+                                            newAvailability.set(dateStr, {
+                                                date: dateStr,
+                                                isAvailable: true,
+                                                timeSlots: [{ id: generateId(), start: dayDefault.start, end: dayDefault.end }],
+                                            });
+                                        }
+                                    }
+                                    setAvailability(newAvailability);
+                                    setShowWeeklyModal(false);
+                                    Alert.alert('Applied', 'Weekly schedule applied to the current month');
+                                }}
+                            >
+                                <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>Apply to This Month</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+
+                        <TouchableOpacity
+                            style={{
+                                paddingVertical: 14,
+                                alignItems: 'center',
+                            }}
+                            onPress={() => setShowWeeklyModal(false)}
+                        >
+                            <Text style={{ color: colors.textSecondary, fontWeight: '600', fontSize: 14 }}>Close</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
             </Modal>

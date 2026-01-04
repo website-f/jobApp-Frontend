@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, StyleSheet, Switch, Modal, ActivityIndicator, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useColors } from '../../store';
-import jobService, { JobCategory, JobTitle } from '../../services/jobService';
+import jobService, { JobCategory, JobTitle, Job } from '../../services/jobService';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
 import config from '../../config';
@@ -20,9 +20,18 @@ interface LocationSuggestion {
     lon: string;
 }
 
+type PostJobRouteParams = {
+    editJob?: Job;
+};
+
 export default function PostJobScreen() {
     const navigation = useNavigation();
+    const route = useRoute<RouteProp<{ params: PostJobRouteParams }, 'params'>>();
     const colors = useColors();
+
+    // Check if we're editing an existing job
+    const editJob = route.params?.editJob;
+    const isEditMode = !!editJob;
 
     // Steps: 0: Basics, 1: Location & Desc, 2: Skills & Schedule
     const [step, setStep] = useState(0);
@@ -70,6 +79,54 @@ export default function PostJobScreen() {
         loadSkills();
     }, []);
 
+    // Populate form when editing an existing job
+    useEffect(() => {
+        if (editJob) {
+            setFormData({
+                company_name: editJob.company_name || '',
+                job_type: editJob.job_type || 'full_time',
+                headcount: editJob.headcount?.toString() || '1',
+                salary_amount: editJob.salary_amount?.toString() || '',
+                location_address: editJob.location_address || DEFAULT_LOCATION.address,
+                latitude: editJob.latitude || DEFAULT_LOCATION.latitude,
+                longitude: editJob.longitude || DEFAULT_LOCATION.longitude,
+                description: editJob.description || '',
+                schedule: editJob.schedule || null,
+                hourly_rate: editJob.hourly_rate?.toString() || '',
+                completion_reward: editJob.completion_reward?.toString() || '',
+            });
+            if (editJob.skills) {
+                // Handle skills as array of objects or strings
+                const skillNames = editJob.skills.map((s: any) => typeof s === 'string' ? s : s.name);
+                setSelectedSkills(skillNames);
+            }
+        }
+    }, [editJob]);
+
+    // When in edit mode and categories are loaded, set the selected category and title
+    useEffect(() => {
+        if (isEditMode && editJob && categories.length > 0) {
+            // Find and set the category if available
+            if (editJob.category) {
+                const categoryId = typeof editJob.category === 'number' ? editJob.category : editJob.category?.id;
+                const foundCategory = categories.find(c => c.id === categoryId);
+                if (foundCategory) {
+                    setSelectedCategory(foundCategory);
+                }
+            }
+
+            // Create a placeholder title from the job data
+            if (editJob.title) {
+                setSelectedTitle({
+                    id: editJob.job_title || 0,
+                    title: editJob.title,
+                    description_template: editJob.description || '',
+                    category: typeof editJob.category === 'number' ? editJob.category : editJob.category?.id || 0,
+                });
+            }
+        }
+    }, [isEditMode, editJob, categories]);
+
     // Load titles when category changes
     useEffect(() => {
         if (selectedCategory) {
@@ -88,28 +145,97 @@ export default function PostJobScreen() {
 
     const loadCategories = async () => {
         try {
+            console.log('Loading job categories...');
             const data = await jobService.getCategories();
-            setCategories(data);
-        } catch (e) {
-            console.error('Failed to load categories:', e);
-            Alert.alert('Error', 'Failed to load job categories');
+            console.log('Categories loaded:', data);
+            if (Array.isArray(data) && data.length > 0) {
+                setCategories(data);
+            } else {
+                console.warn('No categories returned from API, using defaults');
+                setCategories(getDefaultCategories());
+            }
+        } catch (e: any) {
+            console.error('Failed to load categories:', e?.response?.data || e?.message || e);
+            setCategories(getDefaultCategories());
         }
     };
 
+    const getDefaultCategories = (): JobCategory[] => [
+        { id: 1, name: 'Food & Beverage', icon: 'restaurant' },
+        { id: 2, name: 'Retail', icon: 'storefront' },
+        { id: 3, name: 'Technology', icon: 'laptop' },
+        { id: 4, name: 'Healthcare', icon: 'medical' },
+        { id: 5, name: 'Logistics', icon: 'truck' },
+        { id: 6, name: 'Education', icon: 'school' },
+        { id: 7, name: 'Hospitality', icon: 'hotel' },
+        { id: 8, name: 'Other', icon: 'briefcase' },
+    ];
+
     const loadTitles = async (catId: number) => {
         try {
+            console.log('Loading titles for category:', catId);
             const data = await jobService.getTitles(catId);
-            setTitles(data);
-        } catch (e) {
-            console.error('Failed to load titles:', e);
-            Alert.alert('Error', 'Failed to load job titles');
+            console.log('Titles loaded:', data);
+            if (Array.isArray(data) && data.length > 0) {
+                setTitles(data);
+            } else {
+                console.warn('No titles returned for category, using defaults');
+                setTitles(getDefaultTitlesForCategory(catId));
+            }
+        } catch (e: any) {
+            console.error('Failed to load titles:', e?.response?.data || e?.message || e);
+            setTitles(getDefaultTitlesForCategory(catId));
         }
+    };
+
+    const getDefaultTitlesForCategory = (categoryId: number): JobTitle[] => {
+        const titlesByCategory: Record<number, JobTitle[]> = {
+            1: [ // Food & Beverage
+                { id: 101, title: 'Waiter/Waitress', description_template: 'We are looking for a friendly waiter/waitress to serve our guests. Responsibilities include taking orders, serving food and drinks, and ensuring customer satisfaction.', category: 1 },
+                { id: 102, title: 'Barista', description_template: 'Looking for an experienced barista to prepare coffee and other beverages. Must have knowledge of coffee preparation and excellent customer service skills.', category: 1 },
+                { id: 103, title: 'Kitchen Crew', description_template: 'Kitchen crew member needed to assist with food preparation, maintaining cleanliness, and supporting the kitchen team.', category: 1 },
+                { id: 104, title: 'Cashier', description_template: 'Cashier needed to handle customer transactions, manage the cash register, and provide friendly service.', category: 1 },
+            ],
+            2: [ // Retail
+                { id: 201, title: 'Sales Associate', description_template: 'Sales associate needed to assist customers, handle product inquiries, and process transactions.', category: 2 },
+                { id: 202, title: 'Store Assistant', description_template: 'Store assistant to help with inventory management, stocking shelves, and customer service.', category: 2 },
+                { id: 203, title: 'Visual Merchandiser', description_template: 'Visual merchandiser to create attractive store displays and maintain store presentation.', category: 2 },
+            ],
+            3: [ // Technology
+                { id: 301, title: 'Software Developer', description_template: 'Software developer needed to design, develop, and maintain software applications.', category: 3 },
+                { id: 302, title: 'IT Support', description_template: 'IT support specialist to provide technical assistance and troubleshoot issues.', category: 3 },
+                { id: 303, title: 'Web Developer', description_template: 'Web developer to build and maintain websites and web applications.', category: 3 },
+            ],
+            4: [ // Healthcare
+                { id: 401, title: 'Nurse', description_template: 'Registered nurse needed to provide patient care and medical assistance.', category: 4 },
+                { id: 402, title: 'Medical Assistant', description_template: 'Medical assistant to support healthcare professionals with administrative and clinical tasks.', category: 4 },
+            ],
+            5: [ // Logistics
+                { id: 501, title: 'Delivery Driver', description_template: 'Delivery driver needed to transport goods and ensure timely deliveries.', category: 5 },
+                { id: 502, title: 'Warehouse Worker', description_template: 'Warehouse worker to handle inventory, packing, and shipping operations.', category: 5 },
+            ],
+            6: [ // Education
+                { id: 601, title: 'Tutor', description_template: 'Tutor needed to provide academic support and guidance to students.', category: 6 },
+                { id: 602, title: 'Teaching Assistant', description_template: 'Teaching assistant to support teachers in classroom activities and student supervision.', category: 6 },
+            ],
+            7: [ // Hospitality
+                { id: 701, title: 'Receptionist', description_template: 'Receptionist needed to greet guests, manage reservations, and handle inquiries.', category: 7 },
+                { id: 702, title: 'Housekeeper', description_template: 'Housekeeper to maintain cleanliness and tidiness of rooms and common areas.', category: 7 },
+            ],
+            8: [ // Other
+                { id: 801, title: 'General Worker', description_template: 'General worker needed for various tasks and responsibilities.', category: 8 },
+                { id: 802, title: 'Administrative Assistant', description_template: 'Administrative assistant to provide office support and handle administrative tasks.', category: 8 },
+            ],
+        };
+        return titlesByCategory[categoryId] || titlesByCategory[8];
     };
 
     const loadSkills = async () => {
         try {
             const data = await jobService.getSkills();
-            setAvailableSkills(data);
+            if (Array.isArray(data) && data.length > 0) {
+                setAvailableSkills(data);
+            }
         } catch (e) {
             console.error('Failed to load skills:', e);
             // Keep default skills if API fails
@@ -192,7 +318,7 @@ export default function PostJobScreen() {
 
     const handleSubmit = async () => {
         // Validate required fields
-        if (!selectedTitle?.title) {
+        if (!isEditMode && !selectedTitle?.title) {
             Alert.alert('Missing Information', 'Please select a job title');
             return;
         }
@@ -204,17 +330,20 @@ export default function PostJobScreen() {
             Alert.alert('Missing Information', 'Please select a job location');
             return;
         }
-        if (!formData.schedule) {
+        if (!formData.schedule && !isEditMode) {
             Alert.alert('Missing Schedule', 'Please configure the working schedule');
             return;
         }
 
         setIsLoading(true);
         try {
-            const payload = {
-                category: selectedCategory?.id,
-                job_title: selectedTitle?.id,
-                title: selectedTitle?.title,
+            // Only include category/job_title IDs if they're real DB IDs (< 100)
+            // Local fallback IDs start at 100+ and won't exist in the database
+            const categoryId = selectedCategory?.id || editJob?.category;
+            const jobTitleId = selectedTitle?.id || editJob?.job_title;
+
+            const payload: any = {
+                title: selectedTitle?.title || editJob?.title,
                 company_name: formData.company_name,
                 job_type: formData.job_type,
                 headcount: parseInt(formData.headcount) || 1,
@@ -225,13 +354,28 @@ export default function PostJobScreen() {
                 longitude: formData.longitude,
                 description: formData.description || 'No description provided',
                 skills: selectedSkills,
-                schedule: formData.schedule,
+                schedule: formData.schedule || editJob?.schedule,
             };
 
-            await jobService.createJob(payload);
-            Alert.alert('Success', 'Job posted successfully!', [
-                { text: 'OK', onPress: () => navigation.goBack() }
-            ]);
+            // Only add category/job_title if they're valid DB IDs (not local fallbacks)
+            if (categoryId && categoryId < 100) {
+                payload.category = categoryId;
+            }
+            if (jobTitleId && jobTitleId < 100) {
+                payload.job_title = jobTitleId;
+            }
+
+            if (isEditMode && editJob) {
+                await jobService.updateJob(editJob.id, payload);
+                Alert.alert('Success', 'Job updated successfully!', [
+                    { text: 'OK', onPress: () => navigation.goBack() }
+                ]);
+            } else {
+                await jobService.createJob(payload);
+                Alert.alert('Success', 'Job posted successfully!', [
+                    { text: 'OK', onPress: () => navigation.goBack() }
+                ]);
+            }
         } catch (error: any) {
             console.error('Job post error:', error);
             console.error('Error response:', error.response?.data);
@@ -568,9 +712,14 @@ export default function PostJobScreen() {
                 <TouchableOpacity onPress={() => step === 0 ? navigation.goBack() : setStep(step - 1)}>
                     <Text style={{ fontSize: 24, color: colors.text, marginRight: 16 }}>←</Text>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>
-                    {step === 0 ? 'Job Basics' : step === 1 ? 'Location & Desc' : 'Skills & Schedule'}
-                </Text>
+                <View>
+                    {isEditMode && (
+                        <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>EDIT MODE</Text>
+                    )}
+                    <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>
+                        {step === 0 ? 'Job Basics' : step === 1 ? 'Location & Desc' : 'Skills & Schedule'}
+                    </Text>
+                </View>
             </View>
 
             {step === 0 && renderStep0()}
@@ -592,7 +741,7 @@ export default function PostJobScreen() {
                         <ActivityIndicator color="#FFF" />
                     ) : (
                         <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700' }}>
-                            {step === 2 ? 'Post Job' : 'Next'}
+                            {step === 2 ? (isEditMode ? 'Update Job' : 'Post Job') : 'Next'}
                         </Text>
                     )}
                 </TouchableOpacity>

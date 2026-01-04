@@ -17,9 +17,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { useColors, ThemeColors } from '../../store';
-import jobService, { Job, JobSearchFilters } from '../../services/jobService';
+import { useColors, ThemeColors, useAuthStore } from '../../store';
+import jobService, { Job, JobSearchFilters, JobShift } from '../../services/jobService';
 import config from '../../config';
+import { formatSalaryRange, getCurrencySymbol } from '../../utils/currency';
+import { useTranslation } from '../../hooks';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -35,7 +37,12 @@ interface LocationSuggestion {
 
 export default function BrowseJobsScreen() {
     const colors = useColors();
+    const { user } = useAuthStore();
+    const { t } = useTranslation();
     const webViewRef = useRef<WebView>(null);
+
+    // Get user's preferred currency or default to MYR
+    const preferredCurrency = user?.preferred_currency || 'MYR';
 
     // Location state - initialize with defaults
     const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>({
@@ -69,10 +76,28 @@ export default function BrowseJobsScreen() {
     const [coverLetter, setCoverLetter] = useState('');
     const [proposedRate, setProposedRate] = useState('');
 
+    // Track applied jobs
+    const [appliedJobIds, setAppliedJobIds] = useState<Set<number>>(new Set());
+
     // Get current location on mount
     useEffect(() => {
         getCurrentLocation();
     }, []);
+
+    // Fetch user's applied jobs on mount
+    useEffect(() => {
+        fetchAppliedJobs();
+    }, []);
+
+    const fetchAppliedJobs = async () => {
+        try {
+            const applications = await jobService.getMyApplications();
+            const jobIds = new Set<number>(applications.map((app: any) => app.job?.id || app.job).filter(Boolean));
+            setAppliedJobIds(jobIds);
+        } catch (error) {
+            console.log('Could not fetch applied jobs:', error);
+        }
+    };
 
     // Search jobs when location or filters change
     useEffect(() => {
@@ -80,6 +105,15 @@ export default function BrowseJobsScreen() {
             searchJobs();
         }
     }, [currentLocation, jobType, radiusKm, matchSkills, matchAvailability]);
+
+    // Helper to check if location is Android emulator default (Mountain View, CA)
+    const isEmulatorDefaultLocation = (lat: number, lon: number): boolean => {
+        // Android emulator default is approximately 37.4220, -122.0840 (Mountain View, CA)
+        const isNearMountainView =
+            Math.abs(lat - 37.4220) < 0.01 &&
+            Math.abs(lon - (-122.0840)) < 0.01;
+        return isNearMountainView;
+    };
 
     const getCurrentLocation = async () => {
         try {
@@ -90,24 +124,52 @@ export default function BrowseJobsScreen() {
                 return;
             }
 
-            // Try to get current position with timeout
+            // Try multiple methods to get location
+            try {
+                // First try: Get last known location (faster)
+                const lastKnown = await Location.getLastKnownPositionAsync();
+                if (lastKnown) {
+                    const { latitude, longitude } = lastKnown.coords;
+
+                    // Skip if this is the Android emulator default location
+                    if (isEmulatorDefaultLocation(latitude, longitude)) {
+                        console.log('Detected emulator default location (Mountain View), using Kuala Lumpur instead');
+                        // Keep the default Kuala Lumpur location
+                        return;
+                    }
+
+                    console.log('Using last known location');
+                    setCurrentLocation({ latitude, longitude });
+                    reverseGeocode(latitude, longitude);
+                    return;
+                }
+            } catch (lastKnownError) {
+                console.log('Last known location not available');
+            }
+
+            // Second try: Get current position with timeout
             const locationPromise = Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.Balanced,
+                accuracy: Platform.OS === 'android' ? Location.Accuracy.Low : Location.Accuracy.Balanced,
             });
 
             // Add timeout to prevent hanging
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Location timeout')), 10000)
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Location timeout')), 15000)
             );
 
             try {
-                const location = await Promise.race([locationPromise, timeoutPromise]) as Location.LocationObject;
+                const location = await Promise.race([locationPromise, timeoutPromise]);
+                const { latitude, longitude } = location.coords;
 
-                setCurrentLocation({
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude,
-                });
-                reverseGeocode(location.coords.latitude, location.coords.longitude);
+                // Skip if this is the Android emulator default location
+                if (isEmulatorDefaultLocation(latitude, longitude)) {
+                    console.log('Detected emulator default location (Mountain View), using Kuala Lumpur instead');
+                    // Keep the default Kuala Lumpur location
+                    return;
+                }
+
+                setCurrentLocation({ latitude, longitude });
+                reverseGeocode(latitude, longitude);
             } catch (locError) {
                 console.log('Could not get precise location, using default (Kuala Lumpur)');
                 // Keep default location already set
@@ -140,8 +202,10 @@ export default function BrowseJobsScreen() {
 
     const [refreshing, setRefreshing] = useState(false);
 
+    const [isUsingMockData, setIsUsingMockData] = useState(false);
+
     const fetchJobs = async (isRefetch = false) => {
-        if (!currentLocation) return; // Or handle if location is missing
+        if (!currentLocation) return;
 
         if (!isRefetch) setIsLoading(true);
         try {
@@ -157,22 +221,20 @@ export default function BrowseJobsScreen() {
 
             const response = await jobService.searchJobs(filters);
 
-            if (response.success) {
+            // Always use the results if we got any
+            if (response.data && response.data.results) {
                 setJobs(response.data.results);
                 updateMapMarkers(response.data.results);
+                setIsUsingMockData(!response.success);
             } else {
-                // If failed but returned fallback data (mock)
-                if (response.data && response.data.results.length > 0) {
-                    setJobs(response.data.results);
-                    updateMapMarkers(response.data.results);
-                    Alert.alert('Network Issue', 'Failed to fetch live jobs. Showing demo data instead.');
-                } else {
-                    Alert.alert('Error', 'Failed to fetch jobs.');
-                }
+                setJobs([]);
+                setIsUsingMockData(false);
             }
         } catch (error) {
             console.error('Error searching jobs:', error);
-            Alert.alert('Error', 'An unexpected error occurred while searching for jobs.');
+            // Don't show alert on every error - just log it
+            // The mock data fallback in jobService will handle it
+            setJobs([]);
         } finally {
             setIsLoading(false);
             setRefreshing(false);
@@ -262,6 +324,7 @@ export default function BrowseJobsScreen() {
     const handleApplyForJob = async () => {
         if (!selectedJob) return;
 
+        console.log('Submitting application for job:', selectedJob.id);
         setIsApplying(true);
         try {
             await jobService.applyForJob(selectedJob.id, {
@@ -269,6 +332,10 @@ export default function BrowseJobsScreen() {
                 cover_letter: coverLetter || undefined,
                 proposed_rate: applicationType === 'bid' && proposedRate ? parseFloat(proposedRate) : undefined,
             });
+
+            console.log('Application submitted successfully');
+            // Add to applied jobs set immediately
+            setAppliedJobIds(prev => new Set([...prev, selectedJob.id]));
 
             Alert.alert('Success!', 'Your application has been submitted successfully.', [
                 {
@@ -283,7 +350,32 @@ export default function BrowseJobsScreen() {
                 }
             ]);
         } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.detail || 'Failed to submit application. Please try again.');
+            console.error('Application error:', error?.response?.data || error?.message || error);
+            let errorMessage = 'Failed to submit application. Please try again.';
+
+            if (error?.response?.data) {
+                const data = error.response.data;
+                if (typeof data === 'string') {
+                    errorMessage = data;
+                } else if (data.detail) {
+                    errorMessage = data.detail;
+                } else if (data.non_field_errors) {
+                    errorMessage = data.non_field_errors.join(', ');
+                } else if (data.job) {
+                    errorMessage = Array.isArray(data.job) ? data.job.join(', ') : data.job;
+                } else {
+                    // Try to extract first error message from the response
+                    const firstKey = Object.keys(data)[0];
+                    if (firstKey) {
+                        const value = data[firstKey];
+                        errorMessage = Array.isArray(value) ? value.join(', ') : String(value);
+                    }
+                }
+            } else if (error?.message) {
+                errorMessage = error.message;
+            }
+
+            Alert.alert('Application Failed', errorMessage);
         } finally {
             setIsApplying(false);
         }
@@ -429,14 +521,13 @@ export default function BrowseJobsScreen() {
     };
 
     const formatSalary = (job: Job) => {
-        if (!job.salary_min) return 'Salary not specified';
-        const symbol = config.settings.currencySymbol;
-        const formatNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(0)}k` : n.toString();
-        const period = job.salary_period === 'yearly' ? '/yr' : job.salary_period === 'hourly' ? '/hr' : job.salary_period === 'monthly' ? '/mo' : '';
-        if (job.salary_max && job.salary_max !== job.salary_min) {
-            return `${symbol}${formatNum(job.salary_min)} - ${symbol}${formatNum(job.salary_max)}${period}`;
-        }
-        return `${symbol}${formatNum(job.salary_min)}${period}`;
+        if (!job.salary_min && !job.salary_max) return 'Salary not specified';
+        return formatSalaryRange(
+            job.salary_min,
+            job.salary_max,
+            preferredCurrency,
+            job.salary_period
+        );
     };
 
     const formatDistance = (km?: number) => {
@@ -444,11 +535,30 @@ export default function BrowseJobsScreen() {
         return km < 1 ? `${Math.round(km * 1000)}m away` : `${km.toFixed(1)}km away`;
     };
 
+    // Format time from HH:MM:SS to readable format
+    const formatTime = (time: string) => {
+        if (!time) return '';
+        const [hours, minutes] = time.split(':');
+        const h = parseInt(hours, 10);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const hour12 = h % 12 || 12;
+        return `${hour12}:${minutes} ${ampm}`;
+    };
+
+    // Get day name from day_of_week number (0=Monday)
+    const getDayName = (day: number) => {
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        return days[day] || '';
+    };
+
+    // Check if selected job has been applied to
+    const isJobApplied = (jobId: number) => appliedJobIds.has(jobId);
+
     const jobTypeOptions = [
-        { key: 'all', label: 'All Types' },
-        { key: 'full_time', label: 'Full Time' },
-        { key: 'part_time', label: 'Part Time' },
-        { key: 'contract', label: 'Contract' },
+        { key: 'all', label: t('jobs.allTypes') },
+        { key: 'full_time', label: t('jobs.fullTime') },
+        { key: 'part_time', label: t('jobs.partTime') },
+        { key: 'contract', label: t('jobs.contract') },
     ];
 
     const radiusOptions = [10, 25, 50, 100, 200];
@@ -529,7 +639,7 @@ export default function BrowseJobsScreen() {
                         borderColor: colors.cardBorder,
                     }}>
                         {/* Job Type */}
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>Job Type</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>{t('jobs.jobType')}</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                             <View style={{ flexDirection: 'row', gap: 8 }}>
                                 {jobTypeOptions.map(option => (
@@ -558,7 +668,7 @@ export default function BrowseJobsScreen() {
                         </ScrollView>
 
                         {/* Radius */}
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>Search Radius</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 8 }}>{t('jobs.searchRadius')}</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                             <View style={{ flexDirection: 'row', gap: 8 }}>
                                 {radiusOptions.map(r => (
@@ -614,7 +724,7 @@ export default function BrowseJobsScreen() {
                                 }}>
                                     {matchSkills && <Text style={{ color: '#FFF', fontSize: 12 }}>✓</Text>}
                                 </View>
-                                <Text style={{ fontSize: 12, color: colors.text, fontWeight: '500' }}>Match my skills</Text>
+                                <Text style={{ fontSize: 12, color: colors.text, fontWeight: '500' }}>{t('jobs.matchMySkills')}</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
@@ -643,7 +753,7 @@ export default function BrowseJobsScreen() {
                                 }}>
                                     {matchAvailability && <Text style={{ color: '#FFF', fontSize: 12 }}>✓</Text>}
                                 </View>
-                                <Text style={{ fontSize: 12, color: colors.text, fontWeight: '500' }}>Match availability</Text>
+                                <Text style={{ fontSize: 12, color: colors.text, fontWeight: '500' }}>{t('jobs.matchAvailability')}</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -658,7 +768,7 @@ export default function BrowseJobsScreen() {
                             }}
                             onPress={searchJobs}
                         >
-                            <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>🔍 Search Jobs</Text>
+                            <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>{t('jobs.searchJobs')}</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -694,7 +804,7 @@ export default function BrowseJobsScreen() {
                     borderColor: colors.cardBorder,
                 }}>
                     <Text style={{ fontSize: 12, fontWeight: '600', color: colors.text }}>
-                        {isLoading ? 'Loading...' : `${jobs.length} jobs found`}
+                        {isLoading ? t('common.loading') : t('jobs.jobsFound', { count: jobs.length })}
                     </Text>
                 </View>
             </View>
@@ -720,14 +830,14 @@ export default function BrowseJobsScreen() {
                 ) : jobs.length === 0 ? (
                     <View style={{ padding: 40, alignItems: 'center' }}>
                         <Text style={{ fontSize: 40, marginBottom: 12 }}>📭</Text>
-                        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>No jobs found</Text>
-                        <Text style={{ fontSize: 14, color: colors.textSecondary, marginTop: 4 }}>Try adjusting your filters</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>{t('jobs.noJobsFound')}</Text>
+                        <Text style={{ fontSize: 14, color: colors.textSecondary, marginTop: 4 }}>{t('jobs.tryAdjustingFilters')}</Text>
                     </View>
                 ) : (
                     <FlatList
                         data={jobs}
                         keyExtractor={(item) => item.uuid}
-                        contentContainerStyle={{ padding: 16 }}
+                        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
                         refreshControl={
                             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
                         }
@@ -748,11 +858,18 @@ export default function BrowseJobsScreen() {
                                         <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>{item.title}</Text>
                                         <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 2 }}>{item.company_name}</Text>
                                     </View>
-                                    {item.is_remote && (
-                                        <View style={{ backgroundColor: colors.successLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
-                                            <Text style={{ fontSize: 10, fontWeight: '600', color: colors.success }}>REMOTE</Text>
-                                        </View>
-                                    )}
+                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        {isJobApplied(item.id) && (
+                                            <View style={{ backgroundColor: colors.successLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                                                <Text style={{ fontSize: 10, fontWeight: '600', color: colors.success }}>{t('jobs.applied')}</Text>
+                                            </View>
+                                        )}
+                                        {item.is_remote && (
+                                            <View style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                                                <Text style={{ fontSize: 10, fontWeight: '600', color: colors.primary }}>REMOTE</Text>
+                                            </View>
+                                        )}
+                                    </View>
                                 </View>
 
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
@@ -885,31 +1002,92 @@ export default function BrowseJobsScreen() {
                 </View>
             </Modal>
 
-            {/* Job Detail Modal */}
+            {/* Job Detail Modal - Contains both job details and application form */}
             <Modal visible={showJobDetailModal} animationType="slide">
-                <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-                    {selectedJob && (
-                        <>
-                            {/* Header */}
-                            <View style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                padding: 16,
-                                borderBottomWidth: 1,
-                                borderBottomColor: colors.border
-                            }}>
-                                <TouchableOpacity onPress={() => setShowJobDetailModal(false)} style={{ marginRight: 16 }}>
-                                    <Text style={{ fontSize: 24, color: colors.text }}>←</Text>
-                                </TouchableOpacity>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }} numberOfLines={1}>
-                                        {selectedJob.title}
-                                    </Text>
-                                    <Text style={{ fontSize: 13, color: colors.textSecondary }}>{selectedJob.company_name}</Text>
-                                </View>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1, backgroundColor: colors.background }}
+                >
+                    {/* Native-style Header */}
+                    <View style={{
+                        backgroundColor: colors.background,
+                        paddingTop: Platform.OS === 'ios' ? 50 : 40,
+                        borderBottomWidth: 1,
+                        borderBottomColor: colors.border,
+                    }}>
+                        <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 16,
+                            paddingBottom: 12,
+                            minHeight: 44,
+                        }}>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    if (showApplyModal) {
+                                        // Go back to job details
+                                        setShowApplyModal(false);
+                                    } else {
+                                        // Close modal entirely and reset state
+                                        setShowJobDetailModal(false);
+                                        setShowApplyModal(false);
+                                        setCoverLetter('');
+                                        setProposedRate('');
+                                        setApplicationType('apply');
+                                    }
+                                }}
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    backgroundColor: colors.inputBackground,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginRight: 12,
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={{ fontSize: 18, color: colors.text }}>←</Text>
+                            </TouchableOpacity>
+                            <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 17, fontWeight: '600', color: colors.text }} numberOfLines={1}>
+                                    {showApplyModal
+                                        ? (selectedJob?.job_type === 'part_time' ? t('jobs.submitBid') : t('jobs.submitApplication'))
+                                        : selectedJob?.title
+                                    }
+                                </Text>
+                                <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                                    {showApplyModal ? selectedJob?.title : selectedJob?.company_name}
+                                </Text>
                             </View>
+                            {!showApplyModal && (
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setShowJobDetailModal(false);
+                                        setShowApplyModal(false);
+                                        setCoverLetter('');
+                                        setProposedRate('');
+                                        setApplicationType('apply');
+                                    }}
+                                    style={{
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 18,
+                                        backgroundColor: colors.inputBackground,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={{ fontSize: 18, color: colors.textMuted }}>×</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
 
-                            {/* Content */}
+                    {selectedJob && !showApplyModal && (
+                        <>
+                            {/* Job Details View */}
                             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
                                 {/* Job Type & Salary */}
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
@@ -956,7 +1134,7 @@ export default function BrowseJobsScreen() {
 
                                 {/* Description */}
                                 <View style={{ marginBottom: 16 }}>
-                                    <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>Description</Text>
+                                    <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>{t('jobs.description')}</Text>
                                     <Text style={{ fontSize: 14, color: colors.textSecondary, lineHeight: 22 }}>
                                         {selectedJob.description}
                                     </Text>
@@ -965,7 +1143,7 @@ export default function BrowseJobsScreen() {
                                 {/* Required Skills */}
                                 {selectedJob.required_skills.length > 0 && (
                                     <View style={{ marginBottom: 16 }}>
-                                        <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>Required Skills</Text>
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>{t('jobs.requiredSkills')}</Text>
                                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                             {selectedJob.required_skills.map(skill => (
                                                 <View key={skill.id} style={{
@@ -977,6 +1155,60 @@ export default function BrowseJobsScreen() {
                                                     borderColor: colors.border
                                                 }}>
                                                     <Text style={{ fontSize: 12, color: colors.text }}>{skill.name}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Working Schedule */}
+                                {selectedJob.shifts && selectedJob.shifts.length > 0 && (
+                                    <View style={{ marginBottom: 16 }}>
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8 }}>{t('jobs.workingSchedule')}</Text>
+                                        <View style={{
+                                            backgroundColor: colors.card,
+                                            borderRadius: 12,
+                                            padding: 12,
+                                            borderWidth: 1,
+                                            borderColor: colors.cardBorder
+                                        }}>
+                                            {selectedJob.shifts.map((shift, index) => (
+                                                <View
+                                                    key={shift.id}
+                                                    style={{
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        paddingVertical: 8,
+                                                        borderBottomWidth: index < (selectedJob.shifts?.length || 0) - 1 ? 1 : 0,
+                                                        borderBottomColor: colors.border
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 18, marginRight: 10 }}>🕐</Text>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>
+                                                            {shift.date
+                                                                ? new Date(shift.date).toLocaleDateString('en-MY', { weekday: 'short', month: 'short', day: 'numeric' })
+                                                                : shift.day_of_week !== undefined
+                                                                    ? getDayName(shift.day_of_week)
+                                                                    : 'Flexible'
+                                                            }
+                                                        </Text>
+                                                        <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 2 }}>
+                                                            {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                                                        </Text>
+                                                    </View>
+                                                    {shift.hourly_rate && (
+                                                        <View style={{ alignItems: 'flex-end' }}>
+                                                            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.primary }}>
+                                                                {getCurrencySymbol(preferredCurrency)}{shift.hourly_rate}/hr
+                                                            </Text>
+                                                            {shift.headcount_needed && (
+                                                                <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                                                                    {shift.headcount_needed} {shift.headcount_needed === 1 ? 'spot' : 'spots'}
+                                                                </Text>
+                                                            )}
+                                                        </View>
+                                                    )}
                                                 </View>
                                             ))}
                                         </View>
@@ -1000,107 +1232,144 @@ export default function BrowseJobsScreen() {
                                 padding: 16,
                                 borderTopWidth: 1,
                                 borderTopColor: colors.border,
-                                backgroundColor: colors.background
+                                backgroundColor: colors.background,
+                                paddingBottom: Platform.OS === 'ios' ? 30 : 16,
                             }}>
-                                <TouchableOpacity
-                                    style={{
-                                        backgroundColor: colors.primary,
-                                        paddingVertical: 16,
-                                        borderRadius: 12,
-                                        alignItems: 'center',
-                                    }}
-                                    onPress={() => setShowApplyModal(true)}
-                                >
-                                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
-                                        {selectedJob.job_type === 'part_time' ? '💰 Bid for this Job' : '📝 Apply Now'}
-                                    </Text>
-                                </TouchableOpacity>
+                                {isJobApplied(selectedJob.id) ? (
+                                    <View
+                                        style={{
+                                            backgroundColor: colors.successLight,
+                                            paddingVertical: 16,
+                                            borderRadius: 12,
+                                            alignItems: 'center',
+                                            flexDirection: 'row',
+                                            justifyContent: 'center',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <Text style={{ fontSize: 18 }}>✓</Text>
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: colors.success }}>
+                                            {t('jobs.alreadyApplied')}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity
+                                        style={{
+                                            backgroundColor: colors.primary,
+                                            paddingVertical: 16,
+                                            borderRadius: 12,
+                                            alignItems: 'center',
+                                        }}
+                                        onPress={() => setShowApplyModal(true)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
+                                            {selectedJob.job_type === 'part_time' ? t('jobs.bidForJob') : t('jobs.applyNow')}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </>
                     )}
-                </SafeAreaView>
-            </Modal>
 
-            {/* Apply / Bid Modal */}
-            <Modal visible={showApplyModal} animationType="slide" transparent>
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
-                >
-                    <View style={{
-                        backgroundColor: colors.background,
-                        borderTopLeftRadius: 20,
-                        borderTopRightRadius: 20,
-                        maxHeight: '80%',
-                    }}>
-                        {/* Header */}
-                        <View style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: 16,
-                            borderBottomWidth: 1,
-                            borderBottomColor: colors.border
-                        }}>
-                            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>
-                                {selectedJob?.job_type === 'part_time' ? 'Submit Your Bid' : 'Apply for Job'}
-                            </Text>
-                            <TouchableOpacity onPress={() => setShowApplyModal(false)}>
-                                <Text style={{ fontSize: 24, color: colors.textMuted }}>×</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView style={{ padding: 16 }}>
-                            {/* Application Type (for part-time) */}
-                            {selectedJob?.job_type === 'part_time' && (
-                                <View style={{ marginBottom: 20 }}>
-                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
-                                        Application Type
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                                        <TouchableOpacity
-                                            style={{
-                                                flex: 1,
-                                                padding: 12,
-                                                borderRadius: 12,
-                                                borderWidth: 2,
-                                                borderColor: applicationType === 'apply' ? colors.primary : colors.border,
-                                                backgroundColor: applicationType === 'apply' ? colors.primaryLight : colors.inputBackground,
-                                                alignItems: 'center',
-                                            }}
-                                            onPress={() => setApplicationType('apply')}
-                                        >
-                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>📝</Text>
-                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'apply' ? colors.primary : colors.text }}>
-                                                Apply
+                    {selectedJob && showApplyModal && (
+                        <>
+                            {/* Application Form View */}
+                            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+                                {/* Job Summary Card */}
+                                <View style={{
+                                    backgroundColor: colors.card,
+                                    padding: 16,
+                                    borderRadius: 12,
+                                    marginBottom: 20,
+                                    borderWidth: 1,
+                                    borderColor: colors.cardBorder
+                                }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{selectedJob.company_name}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+                                        <View style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                                            <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '500' }}>
+                                                {selectedJob.job_type.replace('_', ' ').toUpperCase()}
                                             </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={{
-                                                flex: 1,
-                                                padding: 12,
-                                                borderRadius: 12,
-                                                borderWidth: 2,
-                                                borderColor: applicationType === 'bid' ? colors.primary : colors.border,
-                                                backgroundColor: applicationType === 'bid' ? colors.primaryLight : colors.inputBackground,
-                                                alignItems: 'center',
-                                            }}
-                                            onPress={() => setApplicationType('bid')}
-                                        >
-                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>💰</Text>
-                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'bid' ? colors.primary : colors.text }}>
-                                                Bid
-                                            </Text>
-                                        </TouchableOpacity>
+                                        </View>
+                                        <Text style={{ fontSize: 13, color: colors.textSecondary }}>{formatSalary(selectedJob)}</Text>
                                     </View>
                                 </View>
-                            )}
 
-                            {/* Proposed Rate (for bidding) */}
-                            {applicationType === 'bid' && (
+                                {/* Application Type (for part-time) */}
+                                {selectedJob.job_type === 'part_time' && (
+                                    <View style={{ marginBottom: 20 }}>
+                                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                            {t('jobs.applicationType')}
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                                            <TouchableOpacity
+                                                style={{
+                                                    flex: 1,
+                                                    padding: 12,
+                                                    borderRadius: 12,
+                                                    borderWidth: 2,
+                                                    borderColor: applicationType === 'apply' ? colors.primary : colors.border,
+                                                    backgroundColor: applicationType === 'apply' ? colors.primaryLight : colors.inputBackground,
+                                                    alignItems: 'center',
+                                                }}
+                                                onPress={() => setApplicationType('apply')}
+                                            >
+                                                <Text style={{ fontSize: 20, marginBottom: 4 }}>📝</Text>
+                                                <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'apply' ? colors.primary : colors.text }}>
+                                                    {t('jobs.apply')}
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={{
+                                                    flex: 1,
+                                                    padding: 12,
+                                                    borderRadius: 12,
+                                                    borderWidth: 2,
+                                                    borderColor: applicationType === 'bid' ? colors.primary : colors.border,
+                                                    backgroundColor: applicationType === 'bid' ? colors.primaryLight : colors.inputBackground,
+                                                    alignItems: 'center',
+                                                }}
+                                                onPress={() => setApplicationType('bid')}
+                                            >
+                                                <Text style={{ fontSize: 20, marginBottom: 4 }}>💰</Text>
+                                                <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'bid' ? colors.primary : colors.text }}>
+                                                    {t('jobs.bid')}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                )}
+
+                                {/* Proposed Rate (for bidding) */}
+                                {applicationType === 'bid' && (
+                                    <View style={{ marginBottom: 20 }}>
+                                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                            Proposed Hourly Rate ({getCurrencySymbol(preferredCurrency)})
+                                        </Text>
+                                        <TextInput
+                                            style={{
+                                                backgroundColor: colors.inputBackground,
+                                                borderWidth: 1,
+                                                borderColor: colors.border,
+                                                borderRadius: 12,
+                                                padding: 12,
+                                                fontSize: 16,
+                                                color: colors.text,
+                                            }}
+                                            placeholder="e.g. 15"
+                                            placeholderTextColor={colors.textMuted}
+                                            keyboardType="numeric"
+                                            value={proposedRate}
+                                            onChangeText={setProposedRate}
+                                        />
+                                    </View>
+                                )}
+
+                                {/* Cover Letter */}
                                 <View style={{ marginBottom: 20 }}>
                                     <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
-                                        Proposed Hourly Rate (RM)
+                                        {t('jobs.coverLetterOptional')}
                                     </Text>
                                     <TextInput
                                         style={{
@@ -1109,65 +1378,50 @@ export default function BrowseJobsScreen() {
                                             borderColor: colors.border,
                                             borderRadius: 12,
                                             padding: 12,
-                                            fontSize: 16,
+                                            fontSize: 14,
                                             color: colors.text,
+                                            height: 120,
+                                            textAlignVertical: 'top',
                                         }}
-                                        placeholder="e.g. 15"
+                                        placeholder={t('jobs.coverLetterPlaceholder')}
                                         placeholderTextColor={colors.textMuted}
-                                        keyboardType="numeric"
-                                        value={proposedRate}
-                                        onChangeText={setProposedRate}
+                                        multiline
+                                        value={coverLetter}
+                                        onChangeText={setCoverLetter}
                                     />
                                 </View>
-                            )}
-
-                            {/* Cover Letter */}
-                            <View style={{ marginBottom: 20 }}>
-                                <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
-                                    Cover Letter (Optional)
-                                </Text>
-                                <TextInput
-                                    style={{
-                                        backgroundColor: colors.inputBackground,
-                                        borderWidth: 1,
-                                        borderColor: colors.border,
-                                        borderRadius: 12,
-                                        padding: 12,
-                                        fontSize: 14,
-                                        color: colors.text,
-                                        height: 120,
-                                        textAlignVertical: 'top',
-                                    }}
-                                    placeholder="Tell the employer why you're a great fit for this job..."
-                                    placeholderTextColor={colors.textMuted}
-                                    multiline
-                                    value={coverLetter}
-                                    onChangeText={setCoverLetter}
-                                />
-                            </View>
+                            </ScrollView>
 
                             {/* Submit Button */}
-                            <TouchableOpacity
-                                style={{
-                                    backgroundColor: colors.primary,
-                                    paddingVertical: 16,
-                                    borderRadius: 12,
-                                    alignItems: 'center',
-                                    marginBottom: 24,
-                                }}
-                                onPress={handleApplyForJob}
-                                disabled={isApplying || (applicationType === 'bid' && !proposedRate)}
-                            >
-                                {isApplying ? (
-                                    <ActivityIndicator color="#FFFFFF" />
-                                ) : (
-                                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
-                                        {applicationType === 'bid' ? 'Submit Bid' : 'Submit Application'}
-                                    </Text>
-                                )}
-                            </TouchableOpacity>
-                        </ScrollView>
-                    </View>
+                            <View style={{
+                                padding: 16,
+                                borderTopWidth: 1,
+                                borderTopColor: colors.border,
+                                backgroundColor: colors.background,
+                                paddingBottom: Platform.OS === 'ios' ? 30 : 16,
+                            }}>
+                                <TouchableOpacity
+                                    style={{
+                                        backgroundColor: isApplying || (applicationType === 'bid' && !proposedRate) ? colors.border : colors.primary,
+                                        paddingVertical: 16,
+                                        borderRadius: 12,
+                                        alignItems: 'center',
+                                    }}
+                                    onPress={handleApplyForJob}
+                                    disabled={isApplying || (applicationType === 'bid' && !proposedRate)}
+                                    activeOpacity={0.7}
+                                >
+                                    {isApplying ? (
+                                        <ActivityIndicator color="#FFFFFF" />
+                                    ) : (
+                                        <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
+                                            {applicationType === 'bid' ? t('jobs.submitBid') : t('jobs.submitApplication')}
+                                        </Text>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    )}
                 </KeyboardAvoidingView>
             </Modal>
         </SafeAreaView>

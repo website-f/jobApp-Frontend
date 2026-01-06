@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useColors } from '../../store';
 import { Ionicons } from '@expo/vector-icons';
+import profileService, { Availability } from '../../services/profileService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_SIZE = (SCREEN_WIDTH - 48) / 7;
@@ -86,6 +87,66 @@ export default function AvailabilityScreen() {
     // Applied jobs for showing busy dates
     const [appliedJobs, setAppliedJobs] = useState<AppliedJob[]>([]);
     const [showAppliedDates, setShowAppliedDates] = useState(true);
+
+    // Load availability from backend on mount
+    useEffect(() => {
+        loadAvailability();
+    }, []);
+
+    const loadAvailability = async () => {
+        setIsLoading(true);
+        try {
+            const data = await profileService.getAvailability();
+            // Transform backend format to weekly defaults
+            if (data && Array.isArray(data)) {
+                const newDefaults = [...weeklyDefaults];
+                data.forEach((item: Availability) => {
+                    const dayIndex = item.day_of_week;
+                    if (dayIndex >= 0 && dayIndex < 7) {
+                        newDefaults[dayIndex] = {
+                            enabled: item.is_available,
+                            start: item.start_time || '09:00',
+                            end: item.end_time || '17:00',
+                        };
+                    }
+                });
+                setWeeklyDefaults(newDefaults);
+
+                // Also apply to calendar for current month
+                applyWeeklyDefaultsToCalendar(newDefaults);
+            }
+        } catch (error) {
+            console.error('Failed to load availability:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const applyWeeklyDefaultsToCalendar = (defaults: WeekdayDefault[]) => {
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const newAvailability = new Map<string, DayAvailability>();
+        for (let i = 1; i <= lastDay; i++) {
+            const date = new Date(year, month, i);
+            if (date < today) continue;
+            const dow = date.getDay();
+            const dayDefault = defaults[dow];
+            const dateStr = formatDate(date);
+
+            if (dayDefault.enabled) {
+                newAvailability.set(dateStr, {
+                    date: dateStr,
+                    isAvailable: true,
+                    timeSlots: [{ id: generateId(), start: dayDefault.start, end: dayDefault.end }],
+                });
+            }
+        }
+        setAvailability(newAvailability);
+    };
 
     // Generate calendar days
     const getCalendarDays = () => {
@@ -296,9 +357,18 @@ export default function AvailabilityScreen() {
     const saveAvailability = async () => {
         setIsSaving(true);
         try {
-            // TODO: Implement API call to save availability
+            // Transform weeklyDefaults to backend format
+            const schedules = weeklyDefaults.map((day, index) => ({
+                day_of_week: index as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+                is_available: day.enabled,
+                start_time: day.enabled ? day.start : null,
+                end_time: day.enabled ? day.end : null,
+            }));
+
+            await profileService.updateAvailability(schedules);
             Alert.alert('Saved', 'Your availability has been updated');
         } catch (error) {
+            console.error('Failed to save availability:', error);
             Alert.alert('Error', 'Failed to save availability');
         } finally {
             setIsSaving(false);
@@ -420,6 +490,16 @@ export default function AvailabilityScreen() {
 
     const calendarDays = getCalendarDays();
     const currentDayInfo = editingDate ? availability.get(editingDate) : null;
+
+    // Show loading spinner while fetching initial data
+    if (isLoading) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={{ marginTop: 12, color: colors.textSecondary }}>Loading availability...</Text>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>

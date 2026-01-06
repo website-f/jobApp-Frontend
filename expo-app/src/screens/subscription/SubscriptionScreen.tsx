@@ -36,7 +36,8 @@ export default function SubscriptionScreen() {
                 subscriptionService.getCurrentSubscription()
             ]);
             setPlans(plansData);
-            setCurrentSubscription(subscriptionData);
+            // getCurrentSubscription returns { subscription, is_premium } - extract subscription
+            setCurrentSubscription(subscriptionData?.subscription || null);
         } catch (error) {
             console.error('Error fetching subscription data:', error);
         } finally {
@@ -182,18 +183,18 @@ export default function SubscriptionScreen() {
                             </Text>
                         </View>
                         <Text style={{ color: colors.text, marginBottom: spacing.xs }}>
-                            Status: <Text style={{ fontWeight: '600', textTransform: 'capitalize' }}>
-                                {currentSubscription.status}
+                            {t('premium.status')}: <Text style={{ fontWeight: '600', textTransform: 'capitalize' }}>
+                                {currentSubscription.status || 'N/A'}
                             </Text>
                         </Text>
                         <Text style={{ color: colors.textSecondary, marginBottom: spacing.md }}>
-                            {currentSubscription.status === 'active' ? (
-                                `Renews on ${new Date(currentSubscription.expires_at).toLocaleDateString()}`
-                            ) : currentSubscription.status === 'cancelled' ? (
-                                `Access until ${new Date(currentSubscription.expires_at).toLocaleDateString()}`
-                            ) : (
-                                `Billing cycle: ${currentSubscription.billing_cycle}`
-                            )}
+                            {currentSubscription.status === 'active' && currentSubscription.expires_at ? (
+                                `${t('premium.renewsOn').replace('{{date}}', new Date(currentSubscription.expires_at).toLocaleDateString())}`
+                            ) : currentSubscription.status === 'cancelled' && currentSubscription.expires_at ? (
+                                `${t('premium.accessUntil').replace('{{date}}', new Date(currentSubscription.expires_at).toLocaleDateString())}`
+                            ) : currentSubscription.billing_cycle ? (
+                                `${t('premium.billingCycle')}: ${currentSubscription.billing_cycle === 'monthly' ? t('premium.monthly') : t('premium.yearly')}`
+                            ) : null}
                         </Text>
                         {currentSubscription.status === 'active' && (
                             <TouchableOpacity
@@ -268,7 +269,7 @@ export default function SubscriptionScreen() {
                 {/* Plans */}
                 {plans.map((plan) => {
                     const isCurrentPlan = currentSubscription?.plan === plan.id;
-                    const price = billingCycle === 'monthly' ? plan.price_monthly : plan.price_yearly;
+                    const price = Number(billingCycle === 'monthly' ? plan.price_monthly : plan.price_yearly) || 0;
 
                     return (
                         <View
@@ -341,7 +342,7 @@ export default function SubscriptionScreen() {
 
                             {/* Features */}
                             <View style={{ gap: spacing.sm, marginBottom: spacing.lg }}>
-                                {plan.features_list?.map((feature, index) => (
+                                {(plan.features_list || plan.features || []).map((feature, index) => (
                                     <View key={index} style={{ flexDirection: 'row', alignItems: 'center' }}>
                                         <Ionicons
                                             name={getFeatureIcon(feature) as any}

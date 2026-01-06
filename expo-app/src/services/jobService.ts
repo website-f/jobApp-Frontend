@@ -499,6 +499,103 @@ export const jobService = {
     },
 
     // ==========================================
+    // Contract Flow Endpoints
+    // ==========================================
+
+    /**
+     * Send contract to accepted applicant (Employer)
+     */
+    async sendContract(applicationId: number, contractTerms?: any, agreedRate?: number): Promise<{
+        success: boolean;
+        status: string;
+        contract_terms: any;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/send_contract/`, {
+            contract_terms: contractTerms,
+            agreed_rate: agreedRate,
+        });
+        return response.data;
+    },
+
+    /**
+     * Sign contract with signature (Seeker)
+     */
+    async signContract(applicationId: number, signature: string): Promise<{
+        success: boolean;
+        status: string;
+        seeker_signed: boolean;
+        message: string;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/sign_contract/`, {
+            signature,
+        });
+        return response.data;
+    },
+
+    /**
+     * Verify signed contract (Employer)
+     */
+    async verifyContract(applicationId: number): Promise<{
+        success: boolean;
+        status: string;
+        employer_verified: boolean;
+        message: string;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/verify_contract/`);
+        return response.data;
+    },
+
+    /**
+     * Legacy: Acknowledge contract (redirects to sign_contract)
+     */
+    async acknowledgeContract(applicationId: number, signature?: string): Promise<{
+        success: boolean;
+        status: string;
+        seeker_acknowledged: boolean;
+        employer_acknowledged: boolean;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/acknowledge_contract/`, {
+            signature,
+        });
+        return response.data;
+    },
+
+    /**
+     * Mark work as started (Seeker)
+     */
+    async startWork(applicationId: number): Promise<{
+        success: boolean;
+        status: string;
+        started_at: string;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/start_work/`);
+        return response.data;
+    },
+
+    /**
+     * Mark work as completed (Both parties)
+     */
+    async completeWork(applicationId: number): Promise<{
+        success: boolean;
+        status: string;
+        completed_at: string;
+    }> {
+        const response = await api.post(`/jobs/applications/${applicationId}/complete_work/`);
+        return response.data;
+    },
+
+    /**
+     * Get upcoming jobs (acknowledged contracts)
+     */
+    async getUpcomingJobs(): Promise<{
+        count: number;
+        applications: any[];
+    }> {
+        const response = await api.get('/jobs/applications/upcoming/');
+        return response.data;
+    },
+
+    // ==========================================
     // AI-Powered Job Recommendations
     // ==========================================
 

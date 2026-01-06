@@ -9,10 +9,12 @@ export interface SubscriptionPlan {
     slug: string;
     user_type: 'seeker' | 'employer';
     user_type_display: string;
-    price_monthly: number;
-    price_yearly: number;
+    price_monthly: number | string;
+    price_yearly: number | string;
     currency: string;
     features: string[];
+    features_list?: string[];  // Alternative field name from API
+    max_applications_per_day?: number;
     max_applications_per_month?: number;
     max_job_posts_per_month?: number;
     priority_matching: boolean;
@@ -93,8 +95,9 @@ export interface SubscriptionLimits {
 
 const subscriptionService = {
     // Get available plans
-    async getPlans(): Promise<SubscriptionPlan[]> {
-        const response = await api.get('/subscriptions/plans/');
+    async getPlans(userType?: string): Promise<SubscriptionPlan[]> {
+        const params = userType ? { user_type: userType } : {};
+        const response = await api.get('/subscriptions/plans/', { params });
         return response.data.results || response.data;
     },
 

@@ -186,6 +186,41 @@ export const messagingService = {
             throw error;
         }
     },
+
+    /**
+     * Start or get conversation with a seeker (for employers messaging candidates)
+     * Uses the 'start' endpoint to create a new conversation with an initial message
+     */
+    async startConversationWithSeeker(seekerId: number, initialMessage: string, jobId?: number): Promise<Conversation> {
+        try {
+            const response = await api.post('/messaging/conversations/start/', {
+                recipient_id: seekerId,
+                job_id: jobId,
+                initial_message: initialMessage,
+            });
+            return response.data;
+        } catch (error: any) {
+            console.error('startConversationWithSeeker error:', error.response?.data || error.message);
+            throw error;
+        }
+    },
+
+    /**
+     * Get or create conversation with a seeker (for employers)
+     */
+    async getOrCreateConversationWithSeeker(seekerId: number, jobId?: number): Promise<Conversation> {
+        try {
+            const response = await api.post('/messaging/conversations/get_or_create/', {
+                employer_id: 0, // Will be set by backend from request.user
+                seeker_id: seekerId,
+                job_id: jobId,
+            });
+            return response.data;
+        } catch (error: any) {
+            console.error('getOrCreateConversationWithSeeker error:', error.response?.data || error.message);
+            throw error;
+        }
+    },
 };
 
 export default messagingService;

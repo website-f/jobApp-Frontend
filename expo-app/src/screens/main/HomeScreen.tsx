@@ -12,10 +12,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuthStore, useProfileStore, useColors, spacing, typography, borderRadius } from '../../store';
+import { useAuthStore, useProfileStore, useColors, useBadgeStore, spacing, typography, borderRadius } from '../../store';
 import { profileService } from '../../services/profileService';
 import jobService, { AIJobRecommendation } from '../../services/jobService';
-import notificationService from '../../services/notificationService';
 import {
     Card,
     StatCard,
@@ -29,11 +28,11 @@ export default function HomeScreen() {
     const { user } = useAuthStore();
     const { profile, setProfile } = useProfileStore();
     const colors = useColors();
+    const { unreadNotifications, fetchBadgeCounts } = useBadgeStore();
     const [refreshing, setRefreshing] = useState(false);
     const [completeness, setCompleteness] = useState(0);
     const [aiRecommendations, setAiRecommendations] = useState<AIJobRecommendation[]>([]);
     const [aiLoading, setAiLoading] = useState(false);
-    const [notificationCount, setNotificationCount] = useState(0);
 
     const loadProfile = async () => {
         try {
@@ -61,24 +60,15 @@ export default function HomeScreen() {
         }
     }, [user?.user_type]);
 
-    const loadNotificationCount = async () => {
-        try {
-            const count = await notificationService.getUnreadCount();
-            setNotificationCount(count);
-        } catch (error) {
-            console.error('Failed to load notification count', error);
-        }
-    };
-
     useEffect(() => {
         loadProfile();
         loadAIRecommendations();
-        loadNotificationCount();
+        fetchBadgeCounts();
     }, [loadAIRecommendations]);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
-        await Promise.all([loadProfile(), loadAIRecommendations(), loadNotificationCount()]);
+        await Promise.all([loadProfile(), loadAIRecommendations(), fetchBadgeCounts()]);
         setRefreshing(false);
     }, [loadAIRecommendations]);
 
@@ -121,10 +111,10 @@ export default function HomeScreen() {
                                 onPress={() => navigation.navigate('Notifications')}
                             >
                                 <Ionicons name="notifications-outline" size={24} color="#fff" />
-                                {notificationCount > 0 && (
+                                {unreadNotifications > 0 && (
                                     <View style={styles.notificationBadge}>
                                         <Text style={styles.notificationCount}>
-                                            {notificationCount > 99 ? '99+' : notificationCount}
+                                            {unreadNotifications > 99 ? '99+' : unreadNotifications}
                                         </Text>
                                     </View>
                                 )}
@@ -373,7 +363,7 @@ export default function HomeScreen() {
                                     description="Browse profiles"
                                     colors={colors}
                                     gradient={['#8B5CF6', '#A78BFA']}
-                                    onPress={() => navigation.navigate('Search')}
+                                    onPress={() => navigation.navigate('Candidates')}
                                 />
                                 <QuickActionCard
                                     icon="wallet"

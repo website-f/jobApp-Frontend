@@ -29,14 +29,15 @@ import ConversationsScreen from '../screens/messaging/ConversationsScreen';
 import ChatScreen from '../screens/messaging/ChatScreen';
 
 // New Feature Screens
-import { ClockInOutScreen, WorkHistoryScreen } from '../screens/work';
+import { ClockInOutScreen, WorkHistoryScreen, WorkReportScreen } from '../screens/work';
 import { WalletScreen } from '../screens/wallet';
 import { SubscriptionScreen } from '../screens/subscription';
 import { RatingScreen } from '../screens/ratings';
 import { PenaltyScreen } from '../screens/penalties';
+import { CandidatesScreen, CandidateDetailScreen } from '../screens/candidates';
 
 // Store
-import { useAuthStore, useThemeStore, useColors } from '../store';
+import { useAuthStore, useThemeStore, useColors, useBadgeStore } from '../store';
 
 // i18n
 import { useTranslation } from '../hooks';
@@ -64,6 +65,9 @@ export type RootStackParamList = {
     Subscription: undefined;
     Ratings: undefined;
     Penalties: undefined;
+    // Candidate Search (Employer)
+    Candidates: undefined;
+    CandidateDetail: { uuid: string; candidate?: any };
 };
 
 export type AuthStackParamList = {
@@ -109,8 +113,16 @@ function MainNavigator() {
     const colors = useColors();
     const { user } = useAuthStore();
     const { t } = useTranslation();
+    const { unreadMessages, fetchBadgeCounts } = useBadgeStore();
     const isEmployer = user?.user_type === 'employer';
     const insets = useSafeAreaInsets();
+
+    // Fetch badge counts on mount and periodically
+    React.useEffect(() => {
+        fetchBadgeCounts();
+        const interval = setInterval(fetchBadgeCounts, 30000); // Refresh every 30 seconds
+        return () => clearInterval(interval);
+    }, []);
 
     // Native tab bar heights
     const TAB_BAR_HEIGHT = Platform.select({ ios: 50, android: 60, default: 56 });
@@ -182,6 +194,14 @@ function MainNavigator() {
                     tabBarIcon: ({ color, focused }) => (
                         <Ionicons name={focused ? 'chatbubbles' : 'chatbubbles-outline'} size={24} color={color} />
                     ),
+                    tabBarBadge: unreadMessages > 0 ? (unreadMessages > 99 ? '99+' : unreadMessages) : undefined,
+                    tabBarBadgeStyle: {
+                        backgroundColor: '#EF4444',
+                        fontSize: 10,
+                        fontWeight: '600',
+                        minWidth: 18,
+                        height: 18,
+                    },
                 }}
             />
 
@@ -302,10 +322,14 @@ export default function AppNavigator() {
                         {/* New Feature Screens */}
                         <RootStack.Screen name="ClockInOut" component={ClockInOutScreen} />
                         <RootStack.Screen name="WorkHistory" component={WorkHistoryScreen} />
+                        <RootStack.Screen name="WorkReport" component={WorkReportScreen} />
                         <RootStack.Screen name="Wallet" component={WalletScreen} />
                         <RootStack.Screen name="Subscription" component={SubscriptionScreen} />
                         <RootStack.Screen name="Ratings" component={RatingScreen} />
                         <RootStack.Screen name="Penalties" component={PenaltyScreen} />
+                        {/* Candidate Search (Employer) */}
+                        <RootStack.Screen name="Candidates" component={CandidatesScreen} />
+                        <RootStack.Screen name="CandidateDetail" component={CandidateDetailScreen} />
                     </>
                 ) : (
                     <RootStack.Screen name="Auth" component={AuthNavigator} />

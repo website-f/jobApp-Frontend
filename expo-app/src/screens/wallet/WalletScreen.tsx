@@ -77,8 +77,8 @@ export default function WalletScreen() {
                     onPress: async () => {
                         setProcessing(true);
                         try {
-                            const result = await walletService.purchaseCoins(packageId);
-                            if (result.checkout_url) {
+                            const result = await walletService.purchaseCoinPackage(packageId);
+                            if (result.payment_intent) {
                                 Alert.alert('Success', 'Redirecting to payment...');
                                 // In real app, open payment URL
                             }
@@ -110,7 +110,12 @@ export default function WalletScreen() {
 
         setProcessing(true);
         try {
-            await walletService.requestWithdrawal(amount, bankAccount);
+            await walletService.requestWithdrawal({
+                amount,
+                bank_name: 'User Bank', // TODO: Add bank name field to modal
+                account_number: bankAccount,
+                account_holder_name: 'Account Holder', // TODO: Add account holder name field
+            });
             Alert.alert('Success', 'Withdrawal request submitted. You will be notified once processed.');
             setShowWithdrawModal(false);
             setWithdrawAmount('');
@@ -270,7 +275,7 @@ export default function WalletScreen() {
                                 {t('wallet.cashBalance')}
                             </Text>
                             <Text style={{ fontSize: 36, fontWeight: '700', color: '#fff' }}>
-                                RM {wallet.cash_balance.toFixed(2)}
+                                RM {(Number(wallet.cash_balance) || 0).toFixed(2)}
                             </Text>
                             <TouchableOpacity
                                 style={{
@@ -310,15 +315,15 @@ export default function WalletScreen() {
                                 <View style={{ gap: spacing.sm }}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                         <Text style={{ color: colors.textSecondary }}>{t('wallet.thisWeek')}</Text>
-                                        <Text style={{ fontWeight: '600', color: colors.text }}>RM {earnings.this_week.toFixed(2)}</Text>
+                                        <Text style={{ fontWeight: '600', color: colors.text }}>RM {(Number(earnings.this_week) || 0).toFixed(2)}</Text>
                                     </View>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                         <Text style={{ color: colors.textSecondary }}>{t('wallet.thisMonth')}</Text>
-                                        <Text style={{ fontWeight: '600', color: colors.text }}>RM {earnings.this_month.toFixed(2)}</Text>
+                                        <Text style={{ fontWeight: '600', color: colors.text }}>RM {(Number(earnings.this_month) || 0).toFixed(2)}</Text>
                                     </View>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                         <Text style={{ color: colors.textSecondary }}>{t('wallet.totalEarnings')}</Text>
-                                        <Text style={{ fontWeight: '700', color: colors.success }}>RM {earnings.total.toFixed(2)}</Text>
+                                        <Text style={{ fontWeight: '700', color: colors.success }}>RM {(Number(earnings.total) || 0).toFixed(2)}</Text>
                                     </View>
                                 </View>
                             </View>
@@ -351,7 +356,7 @@ export default function WalletScreen() {
                                 </View>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                     <Text style={{ color: colors.textSecondary }}>Total Cash Earned</Text>
-                                    <Text style={{ fontWeight: '600', color: colors.success }}>RM {wallet.total_cash_earned.toFixed(2)}</Text>
+                                    <Text style={{ fontWeight: '600', color: colors.success }}>RM {(Number(wallet.total_cash_earned) || 0).toFixed(2)}</Text>
                                 </View>
                             </View>
                         </View>
@@ -550,7 +555,7 @@ export default function WalletScreen() {
                                     </View>
                                     <View style={{ alignItems: 'flex-end' }}>
                                         <Text style={{ fontSize: typography.fontSize.xl, fontWeight: '700', color: colors.primary }}>
-                                            {pkg.currency} {pkg.price.toFixed(2)}
+                                            {pkg.currency} {(Number(pkg.price) || 0).toFixed(2)}
                                         </Text>
                                         <TouchableOpacity
                                             style={{
@@ -657,7 +662,7 @@ export default function WalletScreen() {
                         </View>
 
                         <Text style={{ fontSize: typography.fontSize.sm, color: colors.textSecondary, marginBottom: spacing.sm }}>
-                            Available Balance: RM {wallet?.cash_balance.toFixed(2)}
+                            Available Balance: RM {(Number(wallet?.cash_balance) || 0).toFixed(2)}
                         </Text>
 
                         <Text style={{ fontSize: typography.fontSize.sm, color: colors.text, marginBottom: spacing.xs }}>

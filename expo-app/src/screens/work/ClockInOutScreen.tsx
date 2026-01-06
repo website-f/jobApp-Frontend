@@ -5,23 +5,161 @@ import {
     ScrollView,
     TouchableOpacity,
     ActivityIndicator,
-    Alert,
+    Modal,
     Platform,
     RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { useColors, spacing, typography, borderRadius } from '../../store';
 import { useTranslation } from '../../hooks';
 import workService, { WorkSession } from '../../services/workService';
 import jobService from '../../services/jobService';
 
+// Custom Modal Component
+interface CustomModalProps {
+    visible: boolean;
+    type: 'success' | 'error' | 'warning' | 'confirm';
+    title: string;
+    message: string;
+    onClose: () => void;
+    onConfirm?: () => void;
+    confirmText?: string;
+    cancelText?: string;
+}
+
+const CustomModal: React.FC<CustomModalProps> = ({
+    visible,
+    type,
+    title,
+    message,
+    onClose,
+    onConfirm,
+    confirmText = 'OK',
+    cancelText = 'Cancel',
+}) => {
+    const colors = useColors();
+
+    const getIconAndColor = () => {
+        switch (type) {
+            case 'success':
+                return { icon: 'checkmark-circle' as const, color: colors.success || '#10B981' };
+            case 'error':
+                return { icon: 'close-circle' as const, color: colors.error || '#EF4444' };
+            case 'warning':
+                return { icon: 'warning' as const, color: colors.warning || '#F59E0B' };
+            case 'confirm':
+                return { icon: 'help-circle' as const, color: colors.primary };
+            default:
+                return { icon: 'information-circle' as const, color: colors.primary };
+        }
+    };
+
+    const { icon, color } = getIconAndColor();
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={{
+                flex: 1,
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 20,
+            }}>
+                <View style={{
+                    backgroundColor: colors.card,
+                    borderRadius: 16,
+                    padding: 24,
+                    width: '100%',
+                    maxWidth: 340,
+                    alignItems: 'center',
+                }}>
+                    <View style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 32,
+                        backgroundColor: color + '20',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: 16,
+                    }}>
+                        <Ionicons name={icon} size={36} color={color} />
+                    </View>
+                    <Text style={{
+                        fontSize: 18,
+                        fontWeight: '700',
+                        color: colors.text,
+                        textAlign: 'center',
+                        marginBottom: 8,
+                    }}>
+                        {title}
+                    </Text>
+                    <Text style={{
+                        fontSize: 14,
+                        color: colors.textSecondary,
+                        textAlign: 'center',
+                        marginBottom: 24,
+                        lineHeight: 20,
+                    }}>
+                        {message}
+                    </Text>
+                    {type === 'confirm' ? (
+                        <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                            <TouchableOpacity
+                                style={{
+                                    flex: 1,
+                                    backgroundColor: colors.border,
+                                    paddingVertical: 12,
+                                    borderRadius: 8,
+                                    alignItems: 'center',
+                                }}
+                                onPress={onClose}
+                            >
+                                <Text style={{ color: colors.text, fontWeight: '600' }}>{cancelText}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={{
+                                    flex: 1,
+                                    backgroundColor: color,
+                                    paddingVertical: 12,
+                                    borderRadius: 8,
+                                    alignItems: 'center',
+                                }}
+                                onPress={onConfirm}
+                            >
+                                <Text style={{ color: '#FFF', fontWeight: '600' }}>{confirmText}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            style={{
+                                width: '100%',
+                                backgroundColor: color,
+                                paddingVertical: 12,
+                                borderRadius: 8,
+                                alignItems: 'center',
+                            }}
+                            onPress={onClose}
+                        >
+                            <Text style={{ color: '#FFF', fontWeight: '600' }}>{confirmText}</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
 export default function ClockInOutScreen() {
     const navigation = useNavigation();
+    const route = useRoute();
     const colors = useColors();
     const { t } = useTranslation();
+
+    // Get applicationId from navigation params if provided
+    const passedApplicationId = (route.params as any)?.applicationId;
 
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -30,6 +168,35 @@ export default function ClockInOutScreen() {
     const [upcomingJobs, setUpcomingJobs] = useState<any[]>([]);
     const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
     const [workHistory, setWorkHistory] = useState<WorkSession[]>([]);
+
+    // Modal state
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalConfig, setModalConfig] = useState<{
+        type: 'success' | 'error' | 'warning' | 'confirm';
+        title: string;
+        message: string;
+        onConfirm?: () => void;
+    }>({ type: 'success', title: '', message: '' });
+
+    // Pending clock out confirmation
+    const [pendingClockOut, setPendingClockOut] = useState(false);
+
+    const showModal = (
+        type: 'success' | 'error' | 'warning' | 'confirm',
+        title: string,
+        message: string,
+        onConfirm?: () => void
+    ) => {
+        setModalConfig({ type, title, message, onConfirm });
+        setModalVisible(true);
+    };
+
+    const closeModal = () => {
+        setModalVisible(false);
+        if (pendingClockOut) {
+            setPendingClockOut(false);
+        }
+    };
 
     const fetchData = useCallback(async () => {
         try {
@@ -47,10 +214,35 @@ export default function ClockInOutScreen() {
             const session = await workService.getActiveSession();
             setActiveSession(session);
 
-            // Get accepted jobs (for clock in)
+            // Get jobs ready for clock in (contract_acknowledged or active status)
             const applications = await jobService.getMyApplications();
-            const accepted = applications.filter((app: any) => app.status === 'accepted');
-            setUpcomingJobs(accepted.slice(0, 5));
+            const readyToWork = applications.filter((app: any) =>
+                app.status === 'contract_acknowledged' || app.status === 'active'
+            );
+
+            // If we have a passed applicationId, prioritize that application
+            if (passedApplicationId) {
+                const passedApp = applications.find((app: any) => app.id === passedApplicationId);
+                if (passedApp && (passedApp.status === 'contract_acknowledged' || passedApp.status === 'active')) {
+                    // Put the passed app first
+                    const otherApps = readyToWork.filter((app: any) => app.id !== passedApplicationId);
+                    setUpcomingJobs([passedApp, ...otherApps].slice(0, 5));
+                } else if (passedApp) {
+                    // App exists but wrong status - show error
+                    let errorMsg = 'This job is not ready for clock in yet.';
+                    if (passedApp.status === 'contract_sent' && !passedApp.seeker_signed_at) {
+                        errorMsg = 'Please sign the contract first before clocking in.';
+                    } else if (passedApp.status === 'contract_sent' && passedApp.seeker_signed_at) {
+                        errorMsg = 'Waiting for employer to verify your contract. You can clock in once verified.';
+                    }
+                    showModal('warning', 'Cannot Clock In', errorMsg);
+                    setUpcomingJobs(readyToWork.slice(0, 5));
+                } else {
+                    setUpcomingJobs(readyToWork.slice(0, 5));
+                }
+            } else {
+                setUpcomingJobs(readyToWork.slice(0, 5));
+            }
 
             // Get work history
             const history = await workService.getWorkHistory();
@@ -62,7 +254,7 @@ export default function ClockInOutScreen() {
             setLoading(false);
             setRefreshing(false);
         }
-    }, []);
+    }, [passedApplicationId]);
 
     useEffect(() => {
         fetchData();
@@ -75,27 +267,62 @@ export default function ClockInOutScreen() {
 
     const handleClockIn = async (applicationId: number) => {
         if (!currentLocation) {
-            Alert.alert('Location Required', 'Please enable location services to clock in.');
+            showModal('warning', 'Location Required', 'Please enable location services to clock in.');
             return;
         }
 
         setProcessing(true);
         try {
+            // Round coordinates to 7 decimal places to avoid precision issues
             const result = await workService.clockIn({
                 application_id: applicationId,
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude
+                latitude: Math.round(currentLocation.latitude * 10000000) / 10000000,
+                longitude: Math.round(currentLocation.longitude * 10000000) / 10000000
             });
 
             if (result.success) {
                 setActiveSession(result.session);
-                Alert.alert(
+                showModal(
+                    result.is_within_geofence ? 'success' : 'warning',
                     result.is_within_geofence ? 'Clocked In!' : 'Clocked In (Outside Geofence)',
                     result.message
                 );
+                fetchData();
             }
         } catch (error: any) {
-            Alert.alert('Error', error?.response?.data?.error || 'Failed to clock in');
+            console.error('Clock in error:', error?.response?.data);
+
+            // Parse error message from different possible structures
+            let errorMessage = 'Failed to clock in. Please try again.';
+            const responseData = error?.response?.data;
+
+            if (responseData) {
+                if (typeof responseData === 'string') {
+                    errorMessage = responseData;
+                } else if (responseData.error) {
+                    errorMessage = responseData.error;
+                } else if (responseData.detail) {
+                    errorMessage = responseData.detail;
+                } else if (responseData.application_id) {
+                    // Validation error on application_id field
+                    errorMessage = Array.isArray(responseData.application_id)
+                        ? responseData.application_id[0]
+                        : responseData.application_id;
+                } else if (responseData.non_field_errors) {
+                    errorMessage = Array.isArray(responseData.non_field_errors)
+                        ? responseData.non_field_errors[0]
+                        : responseData.non_field_errors;
+                } else {
+                    // Try to get any error message from the response
+                    const firstKey = Object.keys(responseData)[0];
+                    if (firstKey && responseData[firstKey]) {
+                        const value = responseData[firstKey];
+                        errorMessage = Array.isArray(value) ? value[0] : String(value);
+                    }
+                }
+            }
+
+            showModal('error', 'Clock In Failed', errorMessage);
         } finally {
             setProcessing(false);
         }
@@ -104,38 +331,39 @@ export default function ClockInOutScreen() {
     const handleClockOut = async () => {
         if (!activeSession || !currentLocation) return;
 
-        Alert.alert(
+        showModal(
+            'confirm',
             'Clock Out',
             'Are you sure you want to clock out?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Clock Out',
-                    onPress: async () => {
-                        setProcessing(true);
-                        try {
-                            const result = await workService.clockOut({
-                                session_id: activeSession.id,
-                                latitude: currentLocation.latitude,
-                                longitude: currentLocation.longitude
-                            });
+            async () => {
+                closeModal();
+                setProcessing(true);
+                try {
+                    // Round coordinates to 7 decimal places to avoid precision issues
+                    const result = await workService.clockOut({
+                        session_id: activeSession.id,
+                        latitude: Math.round(currentLocation.latitude * 10000000) / 10000000,
+                        longitude: Math.round(currentLocation.longitude * 10000000) / 10000000
+                    });
 
-                            if (result.success) {
-                                setActiveSession(null);
-                                Alert.alert(
-                                    'Clocked Out!',
-                                    `Total hours: ${result.total_hours}\nEarnings: RM ${result.total_earnings.toFixed(2)}`
-                                );
-                                fetchData();
-                            }
-                        } catch (error: any) {
-                            Alert.alert('Error', error?.response?.data?.error || 'Failed to clock out');
-                        } finally {
-                            setProcessing(false);
-                        }
+                    if (result.success) {
+                        // Navigate to work report screen to submit report
+                        navigation.navigate('WorkReport', {
+                            sessionId: activeSession.id,
+                            jobTitle: activeSession.job_title,
+                            companyName: activeSession.company_name,
+                            totalHours: result.total_hours,
+                            totalEarnings: result.total_earnings,
+                        });
+                        setActiveSession(null);
+                        fetchData();
                     }
+                } catch (error: any) {
+                    showModal('error', 'Clock Out Failed', error?.response?.data?.error || 'Failed to clock out. Please try again.');
+                } finally {
+                    setProcessing(false);
                 }
-            ]
+            }
         );
     };
 
@@ -145,9 +373,10 @@ export default function ClockInOutScreen() {
         setProcessing(true);
         try {
             await workService.startBreak(activeSession.id, breakType);
+            showModal('success', 'Break Started', `Your ${breakType} break has started. Enjoy your break!`);
             fetchData();
         } catch (error: any) {
-            Alert.alert('Error', error?.response?.data?.error || 'Failed to start break');
+            showModal('error', 'Break Failed', error?.response?.data?.error || 'Failed to start break. Please try again.');
         } finally {
             setProcessing(false);
         }
@@ -159,9 +388,10 @@ export default function ClockInOutScreen() {
         setProcessing(true);
         try {
             await workService.endBreak(activeSession.id);
+            showModal('success', 'Break Ended', 'Your break has ended. Back to work!');
             fetchData();
         } catch (error: any) {
-            Alert.alert('Error', error?.response?.data?.error || 'Failed to end break');
+            showModal('error', 'End Break Failed', error?.response?.data?.error || 'Failed to end break. Please try again.');
         } finally {
             setProcessing(false);
         }
@@ -368,9 +598,9 @@ export default function ClockInOutScreen() {
                         }}>
                             Ready to Clock In
                         </Text>
-                        {upcomingJobs.map((job: any) => (
+                        {upcomingJobs.map((application: any) => (
                             <View
-                                key={job.id}
+                                key={application.id}
                                 style={{
                                     backgroundColor: colors.card,
                                     borderRadius: borderRadius.lg,
@@ -380,37 +610,158 @@ export default function ClockInOutScreen() {
                                     borderColor: colors.cardBorder
                                 }}
                             >
+                                {/* Job Title */}
                                 <Text style={{
-                                    fontSize: typography.fontSize.base,
-                                    fontWeight: '600',
+                                    fontSize: typography.fontSize.lg,
+                                    fontWeight: '700',
                                     color: colors.text,
                                     marginBottom: spacing.xs
                                 }}>
-                                    {job.job?.title || job.title}
+                                    {application.job_title}
                                 </Text>
-                                <Text style={{
-                                    fontSize: typography.fontSize.sm,
-                                    color: colors.textSecondary,
+
+                                {/* Company Name */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
+                                    <Ionicons name="business-outline" size={14} color={colors.textSecondary} />
+                                    <Text style={{
+                                        fontSize: typography.fontSize.sm,
+                                        color: colors.textSecondary,
+                                        marginLeft: spacing.xs
+                                    }}>
+                                        {application.company_name}
+                                    </Text>
+                                </View>
+
+                                {/* Shift Details */}
+                                {application.shift_details && (
+                                    <View style={{
+                                        flexDirection: 'row',
+                                        flexWrap: 'wrap',
+                                        gap: spacing.sm,
+                                        marginBottom: spacing.md
+                                    }}>
+                                        {application.shift_details.date && (
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                backgroundColor: colors.primaryLight || '#EBF5FF',
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: spacing.xs,
+                                                borderRadius: borderRadius.sm
+                                            }}>
+                                                <Ionicons name="calendar-outline" size={12} color={colors.primary} />
+                                                <Text style={{
+                                                    fontSize: typography.fontSize.xs,
+                                                    color: colors.primary,
+                                                    marginLeft: 4
+                                                }}>
+                                                    {new Date(application.shift_details.date).toLocaleDateString('en-MY', {
+                                                        weekday: 'short',
+                                                        day: 'numeric',
+                                                        month: 'short'
+                                                    })}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        {application.shift_details.start_time && application.shift_details.end_time && (
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                backgroundColor: colors.successLight || '#D1FAE5',
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: spacing.xs,
+                                                borderRadius: borderRadius.sm
+                                            }}>
+                                                <Ionicons name="time-outline" size={12} color={colors.success || '#059669'} />
+                                                <Text style={{
+                                                    fontSize: typography.fontSize.xs,
+                                                    color: colors.success || '#059669',
+                                                    marginLeft: 4
+                                                }}>
+                                                    {application.shift_details.start_time.slice(0, 5)} - {application.shift_details.end_time.slice(0, 5)}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        {application.shift_details.hourly_rate && (
+                                            <View style={{
+                                                flexDirection: 'row',
+                                                alignItems: 'center',
+                                                backgroundColor: colors.warningLight || '#FEF3C7',
+                                                paddingHorizontal: spacing.sm,
+                                                paddingVertical: spacing.xs,
+                                                borderRadius: borderRadius.sm
+                                            }}>
+                                                <Text style={{
+                                                    fontSize: typography.fontSize.xs,
+                                                    color: colors.warning || '#D97706',
+                                                    fontWeight: '600'
+                                                }}>
+                                                    RM {application.shift_details.hourly_rate}/hr
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                )}
+
+                                {/* Job Type Badge */}
+                                <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
                                     marginBottom: spacing.md
                                 }}>
-                                    {job.job?.company_name || job.company_name}
-                                </Text>
+                                    <View style={{
+                                        backgroundColor: application.job_type === 'part_time' ? '#E0E7FF' : '#DBEAFE',
+                                        paddingHorizontal: spacing.sm,
+                                        paddingVertical: spacing.xs,
+                                        borderRadius: borderRadius.sm
+                                    }}>
+                                        <Text style={{
+                                            fontSize: typography.fontSize.xs,
+                                            color: application.job_type === 'part_time' ? '#4F46E5' : '#2563EB',
+                                            fontWeight: '500'
+                                        }}>
+                                            {application.job_type === 'part_time' ? 'Part-Time' : 'Full-Time'}
+                                        </Text>
+                                    </View>
+                                    <View style={{
+                                        marginLeft: spacing.sm,
+                                        backgroundColor: '#D1FAE5',
+                                        paddingHorizontal: spacing.sm,
+                                        paddingVertical: spacing.xs,
+                                        borderRadius: borderRadius.sm
+                                    }}>
+                                        <Text style={{
+                                            fontSize: typography.fontSize.xs,
+                                            color: '#059669',
+                                            fontWeight: '500'
+                                        }}>
+                                            Contract Verified
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                {/* Clock In Button */}
                                 <TouchableOpacity
                                     style={{
                                         backgroundColor: colors.success,
-                                        paddingVertical: spacing.sm,
+                                        paddingVertical: spacing.md,
                                         borderRadius: borderRadius.base,
-                                        alignItems: 'center'
+                                        alignItems: 'center',
+                                        flexDirection: 'row',
+                                        justifyContent: 'center'
                                     }}
-                                    onPress={() => handleClockIn(job.id)}
+                                    onPress={() => handleClockIn(application.id)}
                                     disabled={processing}
                                 >
                                     {processing ? (
                                         <ActivityIndicator color="#fff" size="small" />
                                     ) : (
-                                        <Text style={{ color: '#fff', fontWeight: '700' }}>
-                                            {t('work.clockIn')}
-                                        </Text>
+                                        <>
+                                            <Ionicons name="play-circle" size={20} color="#fff" style={{ marginRight: spacing.xs }} />
+                                            <Text style={{ color: '#fff', fontWeight: '700', fontSize: typography.fontSize.base }}>
+                                                {t('work.clockIn')}
+                                            </Text>
+                                        </>
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -490,19 +841,32 @@ export default function ClockInOutScreen() {
                             color: colors.text,
                             marginTop: spacing.md
                         }}>
-                            No Active Jobs
+                            No Jobs Ready for Clock In
                         </Text>
                         <Text style={{
                             fontSize: typography.fontSize.base,
                             color: colors.textSecondary,
                             textAlign: 'center',
-                            marginTop: spacing.sm
+                            marginTop: spacing.sm,
+                            paddingHorizontal: spacing.lg
                         }}>
-                            Apply for jobs to start clocking in
+                            Jobs will appear here once contracts are verified. Make sure your contract is signed and verified by the employer.
                         </Text>
                     </View>
                 )}
             </ScrollView>
+
+            {/* Custom Modal */}
+            <CustomModal
+                visible={modalVisible}
+                type={modalConfig.type}
+                title={modalConfig.title}
+                message={modalConfig.message}
+                onClose={closeModal}
+                onConfirm={modalConfig.onConfirm}
+                confirmText={modalConfig.type === 'confirm' ? 'Confirm' : 'OK'}
+                cancelText="Cancel"
+            />
         </SafeAreaView>
     );
 }

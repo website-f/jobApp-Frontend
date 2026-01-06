@@ -85,8 +85,10 @@ export interface Withdrawal {
 export interface EarningsSummary {
     total_earned: number;
     pending_earnings: number;
+    this_week: number;
     this_month: number;
     last_month: number;
+    total: number;
     by_job_type: { [key: string]: number };
 }
 

@@ -2,7 +2,32 @@ import api from './api';
 
 export interface Notification {
     id: number;
-    type: 'job_match' | 'application_update' | 'message' | 'system' | 'reminder' | 'profile_view';
+    type:
+        | 'job_match'
+        | 'job_expired'
+        | 'job_reminder'
+        | 'application_update'
+        | 'application_received'
+        | 'contract_generated'
+        | 'contract_acknowledged'
+        | 'work_report_to_work'
+        | 'work_clock_in'
+        | 'work_clock_out'
+        | 'work_break'
+        | 'work_completed'
+        | 'work_confirmed'
+        | 'payment_pending'
+        | 'payment_received'
+        | 'withdrawal_processed'
+        | 'message'
+        | 'rating_received'
+        | 'rating_reminder'
+        | 'penalty_issued'
+        | 'penalty_appeal'
+        | 'system'
+        | 'reminder'
+        | 'profile_view'
+        | 'interview_scheduled';
     title: string;
     message: string;
     read: boolean;
@@ -11,8 +36,14 @@ export interface Notification {
         job_id?: number;
         application_id?: number;
         conversation_id?: number;
+        work_session_id?: number;
         employer_id?: string;
         seeker_id?: string;
+        status?: string;
+        amount?: string;
+        currency?: string;
+        rating?: string;
+        review_id?: string;
     };
 }
 

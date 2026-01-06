@@ -1052,7 +1052,7 @@ export default function BrowseJobsScreen() {
                             <View style={{ flex: 1 }}>
                                 <Text style={{ fontSize: 17, fontWeight: '600', color: colors.text }} numberOfLines={1}>
                                     {showApplyModal
-                                        ? (selectedJob?.job_type === 'part_time' ? t('jobs.submitBid') : t('jobs.submitApplication'))
+                                        ? (applicationType === 'bid' ? t('jobs.submitBid') : t('jobs.submitApplication'))
                                         : selectedJob?.title
                                     }
                                 </Text>
@@ -1264,7 +1264,7 @@ export default function BrowseJobsScreen() {
                                         activeOpacity={0.7}
                                     >
                                         <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
-                                            {selectedJob.job_type === 'part_time' ? t('jobs.bidForJob') : t('jobs.applyNow')}
+                                            {t('jobs.applyNow')}
                                         </Text>
                                     </TouchableOpacity>
                                 )}
@@ -1296,50 +1296,48 @@ export default function BrowseJobsScreen() {
                                     </View>
                                 </View>
 
-                                {/* Application Type (for part-time) */}
-                                {selectedJob.job_type === 'part_time' && (
-                                    <View style={{ marginBottom: 20 }}>
-                                        <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
-                                            {t('jobs.applicationType')}
-                                        </Text>
-                                        <View style={{ flexDirection: 'row', gap: 12 }}>
-                                            <TouchableOpacity
-                                                style={{
-                                                    flex: 1,
-                                                    padding: 12,
-                                                    borderRadius: 12,
-                                                    borderWidth: 2,
-                                                    borderColor: applicationType === 'apply' ? colors.primary : colors.border,
-                                                    backgroundColor: applicationType === 'apply' ? colors.primaryLight : colors.inputBackground,
-                                                    alignItems: 'center',
-                                                }}
-                                                onPress={() => setApplicationType('apply')}
-                                            >
-                                                <Text style={{ fontSize: 20, marginBottom: 4 }}>📝</Text>
-                                                <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'apply' ? colors.primary : colors.text }}>
-                                                    {t('jobs.apply')}
-                                                </Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={{
-                                                    flex: 1,
-                                                    padding: 12,
-                                                    borderRadius: 12,
-                                                    borderWidth: 2,
-                                                    borderColor: applicationType === 'bid' ? colors.primary : colors.border,
-                                                    backgroundColor: applicationType === 'bid' ? colors.primaryLight : colors.inputBackground,
-                                                    alignItems: 'center',
-                                                }}
-                                                onPress={() => setApplicationType('bid')}
-                                            >
-                                                <Text style={{ fontSize: 20, marginBottom: 4 }}>💰</Text>
-                                                <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'bid' ? colors.primary : colors.text }}>
-                                                    {t('jobs.bid')}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
+                                {/* Application Type - Apply or Bid */}
+                                <View style={{ marginBottom: 20 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+                                        {t('jobs.applicationType')}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                padding: 12,
+                                                borderRadius: 12,
+                                                borderWidth: 2,
+                                                borderColor: applicationType === 'apply' ? colors.primary : colors.border,
+                                                backgroundColor: applicationType === 'apply' ? colors.primaryLight : colors.inputBackground,
+                                                alignItems: 'center',
+                                            }}
+                                            onPress={() => setApplicationType('apply')}
+                                        >
+                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>📝</Text>
+                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'apply' ? colors.primary : colors.text }}>
+                                                {t('jobs.apply')}
+                                            </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={{
+                                                flex: 1,
+                                                padding: 12,
+                                                borderRadius: 12,
+                                                borderWidth: 2,
+                                                borderColor: applicationType === 'bid' ? colors.primary : colors.border,
+                                                backgroundColor: applicationType === 'bid' ? colors.primaryLight : colors.inputBackground,
+                                                alignItems: 'center',
+                                            }}
+                                            onPress={() => setApplicationType('bid')}
+                                        >
+                                            <Text style={{ fontSize: 20, marginBottom: 4 }}>💰</Text>
+                                            <Text style={{ fontSize: 13, fontWeight: '600', color: applicationType === 'bid' ? colors.primary : colors.text }}>
+                                                {t('jobs.bid')}
+                                            </Text>
+                                        </TouchableOpacity>
                                     </View>
-                                )}
+                                </View>
 
                                 {/* Proposed Rate (for bidding) */}
                                 {applicationType === 'bid' && (

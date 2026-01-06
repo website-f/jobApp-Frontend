@@ -9,48 +9,101 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { useColors, spacing, typography, borderRadius } from '../../store';
+import { useColors, useBadgeStore, spacing, typography, borderRadius } from '../../store';
 import { Card, EmptyState } from '../../components/ui';
 import notificationService, { Notification } from '../../services/notificationService';
 
 const NOTIFICATION_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+    // Job related
     job_match: 'briefcase',
+    job_expired: 'time',
+    job_reminder: 'alarm',
+    // Application related
     application_update: 'document-text',
     application_received: 'mail',
+    contract_generated: 'document-attach',
+    contract_acknowledged: 'checkmark-done',
+    // Work session related
+    work_report_to_work: 'walk',
+    work_clock_in: 'log-in',
+    work_clock_out: 'log-out',
+    work_break: 'cafe',
+    work_completed: 'checkmark-circle',
+    work_confirmed: 'shield-checkmark',
+    // Payment related
+    payment_pending: 'hourglass',
+    payment_received: 'wallet',
+    withdrawal_processed: 'cash',
+    // Messaging
     message: 'chatbubble',
+    // Rating
+    rating_received: 'star',
+    rating_reminder: 'star-half',
+    // Penalty
+    penalty_issued: 'warning',
+    penalty_appeal: 'megaphone',
+    // General
     system: 'notifications',
     reminder: 'alarm',
     profile_view: 'eye',
-    job_expired: 'time',
     interview_scheduled: 'calendar',
 };
 
 const NOTIFICATION_COLORS: Record<string, string> = {
+    // Job related
     job_match: '#0EA5E9',
+    job_expired: '#EF4444',
+    job_reminder: '#F59E0B',
+    // Application related
     application_update: '#8B5CF6',
     application_received: '#10B981',
+    contract_generated: '#6366F1',
+    contract_acknowledged: '#10B981',
+    // Work session related
+    work_report_to_work: '#3B82F6',
+    work_clock_in: '#22C55E',
+    work_clock_out: '#F97316',
+    work_break: '#A855F7',
+    work_completed: '#10B981',
+    work_confirmed: '#059669',
+    // Payment related
+    payment_pending: '#F59E0B',
+    payment_received: '#10B981',
+    withdrawal_processed: '#22C55E',
+    // Messaging
     message: '#22C55E',
+    // Rating
+    rating_received: '#F59E0B',
+    rating_reminder: '#F59E0B',
+    // Penalty
+    penalty_issued: '#EF4444',
+    penalty_appeal: '#F97316',
+    // General
     system: '#F59E0B',
     reminder: '#EC4899',
     profile_view: '#6366F1',
-    job_expired: '#EF4444',
     interview_scheduled: '#14B8A6',
 };
 
 export default function NotificationsScreen() {
     const navigation = useNavigation<any>();
     const colors = useColors();
+    const { fetchBadgeCounts, setUnreadNotifications } = useBadgeStore();
     const [refreshing, setRefreshing] = useState(false);
     const [loading, setLoading] = useState(true);
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
-    useEffect(() => {
-        loadNotifications();
-    }, []);
+    // Refresh badge counts when screen is focused
+    useFocusEffect(
+        useCallback(() => {
+            loadNotifications();
+            fetchBadgeCounts();
+        }, [])
+    );
 
     const loadNotifications = async () => {
         try {
@@ -77,7 +130,9 @@ export default function NotificationsScreen() {
             setNotifications(notifications.map(n =>
                 n.id === id ? { ...n, read: true } : n
             ));
-            setUnreadCount(prev => Math.max(0, prev - 1));
+            const newCount = Math.max(0, unreadCount - 1);
+            setUnreadCount(newCount);
+            setUnreadNotifications(newCount);
         } catch (error) {
             console.error('Failed to mark as read:', error);
         }
@@ -88,6 +143,7 @@ export default function NotificationsScreen() {
             await notificationService.markAllAsRead();
             setNotifications(notifications.map(n => ({ ...n, read: true })));
             setUnreadCount(0);
+            setUnreadNotifications(0);
         } catch (error) {
             console.error('Failed to mark all as read:', error);
         }
@@ -99,7 +155,9 @@ export default function NotificationsScreen() {
             const notification = notifications.find(n => n.id === id);
             setNotifications(notifications.filter(n => n.id !== id));
             if (notification && !notification.read) {
-                setUnreadCount(prev => Math.max(0, prev - 1));
+                const newCount = Math.max(0, unreadCount - 1);
+                setUnreadCount(newCount);
+                setUnreadNotifications(newCount);
             }
         } catch (error) {
             console.error('Failed to delete notification:', error);
@@ -113,16 +171,73 @@ export default function NotificationsScreen() {
         }
 
         // Navigate based on notification type and data
-        if (notification.data) {
-            if (notification.type === 'message' && notification.data.conversation_id) {
-                navigation.navigate('Chat', { conversationId: notification.data.conversation_id });
-            } else if (notification.type === 'application_update' && notification.data.application_id) {
-                navigation.navigate('MyApplications');
-            } else if (notification.type === 'application_received' && notification.data.job_id) {
-                navigation.navigate('EmployerJobs');
-            } else if (notification.type === 'job_match' && notification.data.job_id) {
-                navigation.navigate('Jobs');
-            }
+        const { type, data } = notification;
+
+        // Message notifications
+        if (type === 'message' && data?.conversation_id) {
+            navigation.navigate('Chat', { conversationId: data.conversation_id });
+            return;
+        }
+
+        // Application related - seeker side
+        if (type === 'application_update' && data?.application_id) {
+            navigation.navigate('MyApplications');
+            return;
+        }
+
+        // Contract related - seeker side
+        if ((type === 'contract_generated' || type === 'contract_acknowledged') && data?.application_id) {
+            navigation.navigate('MyApplications');
+            return;
+        }
+
+        // Application received - employer side
+        if (type === 'application_received' && data?.job_id) {
+            navigation.navigate('EmployerJobs');
+            return;
+        }
+
+        // Job match - navigate to jobs
+        if ((type === 'job_match' || type === 'job_expired' || type === 'job_reminder') && data?.job_id) {
+            navigation.navigate('Jobs');
+            return;
+        }
+
+        // Work session related notifications - go to clock in/out
+        if (
+            type === 'work_report_to_work' ||
+            type === 'work_clock_in' ||
+            type === 'work_clock_out' ||
+            type === 'work_break' ||
+            type === 'work_completed' ||
+            type === 'work_confirmed'
+        ) {
+            navigation.navigate('ClockInOut');
+            return;
+        }
+
+        // Payment related - go to earnings/wallet
+        if (type === 'payment_pending' || type === 'payment_received' || type === 'withdrawal_processed') {
+            navigation.navigate('Earnings');
+            return;
+        }
+
+        // Rating received - go to profile
+        if (type === 'rating_received' || type === 'rating_reminder') {
+            navigation.navigate('Profile');
+            return;
+        }
+
+        // Penalty notifications - go to profile/settings
+        if (type === 'penalty_issued' || type === 'penalty_appeal') {
+            navigation.navigate('Profile');
+            return;
+        }
+
+        // Interview scheduled - go to applications
+        if (type === 'interview_scheduled' && data?.application_id) {
+            navigation.navigate('MyApplications');
+            return;
         }
     };
 

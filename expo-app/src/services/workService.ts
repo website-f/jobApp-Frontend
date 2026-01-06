@@ -76,6 +76,28 @@ export interface ReportToWork {
     company_name: string;
 }
 
+export interface WorkReport {
+    id: number;
+    work_session: number;
+    seeker: number;
+    tasks_completed: string;
+    challenges_faced?: string;
+    additional_notes?: string;
+    work_photos: string[];
+    quality_rating?: number;
+    employer_reviewed: boolean;
+    employer_reviewed_at?: string;
+    employer_feedback?: string;
+    employer_approved: boolean;
+    job_title: string;
+    company_name: string;
+    seeker_name?: string;
+    total_hours: number;
+    total_earnings?: number;
+    created_at: string;
+    updated_at: string;
+}
+
 const workService = {
     // Get active work session
     async getActiveSession(): Promise<WorkSession | null> {
@@ -170,6 +192,87 @@ const workService = {
             confirmed,
             notes
         });
+        return response.data;
+    },
+
+    // ===== Work Reports =====
+
+    // Submit work report after clocking out
+    async submitWorkReport(data: {
+        work_session_id: number;
+        tasks_completed: string;
+        challenges_faced?: string;
+        additional_notes?: string;
+        work_photos?: string[];
+        quality_rating?: number;
+    }): Promise<{
+        success: boolean;
+        report: WorkReport;
+    }> {
+        const response = await api.post('/work/work-reports/', data);
+        return response.data;
+    },
+
+    // Get my work reports
+    async getMyWorkReports(): Promise<WorkReport[]> {
+        const response = await api.get('/work/work-reports/');
+        return response.data.results || response.data;
+    },
+
+    // Get single work report
+    async getWorkReport(reportId: number): Promise<WorkReport> {
+        const response = await api.get(`/work/work-reports/${reportId}/`);
+        return response.data;
+    },
+
+    // Employer review work report
+    async reviewWorkReport(reportId: number, approved: boolean, feedback?: string): Promise<{
+        success: boolean;
+        report: WorkReport;
+    }> {
+        const response = await api.post(`/work/work-reports/${reportId}/employer_review/`, {
+            approved,
+            feedback
+        });
+        return response.data;
+    },
+
+    // Get pending work reports for employer
+    async getPendingWorkReports(): Promise<{
+        count: number;
+        reports: WorkReport[];
+    }> {
+        const response = await api.get('/work/work-reports/pending_review/');
+        return response.data;
+    },
+
+    // ===== Employer Views =====
+
+    // Get active workers (employer)
+    async getActiveWorkers(): Promise<{
+        count: number;
+        sessions: WorkSession[];
+    }> {
+        const response = await api.get('/work/employer/active-workers/');
+        return response.data;
+    },
+
+    // Get sessions pending confirmation (employer)
+    async getPendingConfirmation(): Promise<{
+        count: number;
+        sessions: WorkSession[];
+    }> {
+        const response = await api.get('/work/employer/pending-confirmation/');
+        return response.data;
+    },
+
+    // Get today's schedule (employer)
+    async getTodaySchedule(): Promise<{
+        date: string;
+        count: number;
+        applications: any[];
+    }> {
+        const response = await api.get('/work/employer/today-schedule/');
         return response.data;
     }
 };

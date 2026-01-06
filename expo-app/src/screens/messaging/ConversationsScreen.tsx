@@ -9,13 +9,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { useColors, useAuthStore } from '../../store';
+import { useColors, useAuthStore, useBadgeStore } from '../../store';
 import { messagingService, Conversation } from '../../services/messagingService';
 
 export default function ConversationsScreen() {
     const navigation = useNavigation<any>();
     const colors = useColors();
     const { user } = useAuthStore();
+    const { fetchBadgeCounts } = useBadgeStore();
 
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
@@ -35,10 +36,12 @@ export default function ConversationsScreen() {
         }
     };
 
-    // Reload conversations when screen comes into focus
+    // Reload conversations when screen comes into focus and refresh badge counts
     useFocusEffect(
         useCallback(() => {
             loadConversations();
+            // Refresh badge counts when screen is focused
+            fetchBadgeCounts();
         }, [])
     );
 

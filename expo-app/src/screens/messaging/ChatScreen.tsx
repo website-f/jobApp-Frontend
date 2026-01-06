@@ -11,12 +11,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { useColors, useAuthStore } from '../../store';
+import { useColors, useAuthStore, useBadgeStore } from '../../store';
 import { messagingService, Message, Conversation } from '../../services/messagingService';
 
 type ChatRouteParams = {
-    conversationId: number;
+    conversationId?: number | null;
     conversation?: Conversation;
+    // For starting new conversations (when conversationId is null)
+    recipientId?: number;
+    recipientUuid?: string;
+    recipientName?: string;
+    jobId?: number;
 };
 
 export default function ChatScreen() {
@@ -24,19 +29,34 @@ export default function ChatScreen() {
     const route = useRoute<RouteProp<{ params: ChatRouteParams }, 'params'>>();
     const colors = useColors();
     const { user } = useAuthStore();
+    const { fetchBadgeCounts } = useBadgeStore();
 
-    const { conversationId, conversation: initialConversation } = route.params;
+    const {
+        conversationId: initialConversationId,
+        conversation: initialConversation,
+        recipientId,
+        recipientName,
+        jobId,
+    } = route.params;
 
     const [messages, setMessages] = useState<Message[]>([]);
     const [conversation, setConversation] = useState<Conversation | undefined>(initialConversation);
+    const [conversationId, setConversationId] = useState<number | null>(initialConversationId || null);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [messageText, setMessageText] = useState('');
+    const [isNewConversation, setIsNewConversation] = useState(!initialConversationId && !!recipientId);
 
     const flatListRef = useRef<FlatList>(null);
     const isSeeker = user?.user_type === 'seeker';
 
     const loadMessages = async () => {
+        // If no conversation ID yet, this is a new conversation - just show empty state
+        if (!conversationId) {
+            setLoading(false);
+            return;
+        }
+
         try {
             const [messagesData, convData] = await Promise.all([
                 messagingService.getMessages(conversationId),
@@ -45,8 +65,9 @@ export default function ChatScreen() {
             setMessages(messagesData);
             if (!conversation) setConversation(convData);
 
-            // Mark messages as read
+            // Mark messages as read and refresh badge counts
             await messagingService.markAsRead(conversationId);
+            fetchBadgeCounts();
         } catch (error) {
             console.error('Failed to load messages:', error);
         } finally {
@@ -60,8 +81,9 @@ export default function ChatScreen() {
         }, [conversationId])
     );
 
-    // Poll for new messages every 10 seconds
+    // Poll for new messages every 10 seconds (only if we have a conversation)
     useEffect(() => {
+        if (!conversationId) return;
         const interval = setInterval(loadMessages, 10000);
         return () => clearInterval(interval);
     }, [conversationId]);
@@ -74,11 +96,27 @@ export default function ChatScreen() {
         setSending(true);
 
         try {
-            const newMessage = await messagingService.sendMessage(conversationId, {
-                content: text,
-                message_type: 'text',
-            });
-            setMessages((prev) => [...prev, newMessage]);
+            // If this is a new conversation (no conversationId), create it first
+            if (!conversationId && recipientId) {
+                const newConversation = await messagingService.startConversationWithSeeker(
+                    recipientId,
+                    text,
+                    jobId
+                );
+                setConversation(newConversation);
+                setConversationId(newConversation.id);
+                setIsNewConversation(false);
+                // Load the messages (including the one we just sent)
+                const messagesData = await messagingService.getMessages(newConversation.id);
+                setMessages(messagesData);
+            } else if (conversationId) {
+                // Normal message send to existing conversation
+                const newMessage = await messagingService.sendMessage(conversationId, {
+                    content: text,
+                    message_type: 'text',
+                });
+                setMessages((prev) => [...prev, newMessage]);
+            }
 
             // Scroll to bottom
             setTimeout(() => {
@@ -93,7 +131,10 @@ export default function ChatScreen() {
     };
 
     const getOtherPartyName = () => {
-        if (!conversation) return 'Chat';
+        // For new conversations without a conversation object yet
+        if (!conversation) {
+            return recipientName || 'Chat';
+        }
         if (isSeeker) {
             const profile = conversation.employer.profile;
             if (profile?.company_name) return profile.company_name;
@@ -322,7 +363,9 @@ export default function ChatScreen() {
                         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
                             <Text style={{ fontSize: 48, marginBottom: 16 }}>👋</Text>
                             <Text style={{ fontSize: 16, color: colors.textSecondary, textAlign: 'center' }}>
-                                Start the conversation!
+                                {isNewConversation
+                                    ? `Send a message to start a conversation with ${recipientName || 'this candidate'}`
+                                    : 'Start the conversation!'}
                             </Text>
                         </View>
                     }

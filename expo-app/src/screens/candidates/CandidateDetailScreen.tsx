@@ -420,7 +420,18 @@ export default function CandidateDetailScreen() {
                                                 </View>
                                             )}
                                             {skill.is_verified && (
-                                                <Ionicons name="checkmark-circle" size={14} color={colors.success} style={{ marginLeft: 4 }} />
+                                                <View style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    backgroundColor: colors.success + '15',
+                                                    paddingHorizontal: 6,
+                                                    paddingVertical: 2,
+                                                    borderRadius: borderRadius.sm,
+                                                    marginLeft: spacing.xs,
+                                                }}>
+                                                    <Ionicons name="checkmark-circle" size={12} color={colors.success} />
+                                                    <Text style={{ fontSize: 10, color: colors.success, fontWeight: '600', marginLeft: 2 }}>Verified</Text>
+                                                </View>
                                             )}
                                         </View>
                                         {skill.category && (

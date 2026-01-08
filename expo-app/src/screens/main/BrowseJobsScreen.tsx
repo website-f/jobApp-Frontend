@@ -563,6 +563,38 @@ export default function BrowseJobsScreen() {
 
     const radiusOptions = [10, 25, 50, 100, 200];
 
+    // Count active filters
+    const getActiveFiltersCount = () => {
+        let count = 0;
+        if (jobType !== 'all') count++;
+        if (radiusKm !== 50) count++; // 50 is default
+        if (matchSkills) count++;
+        if (matchAvailability) count++;
+        return count;
+    };
+
+    // Get active filter labels for display
+    const getActiveFilterLabels = (): string[] => {
+        const labels: string[] = [];
+        if (jobType !== 'all') {
+            const typeLabel = jobTypeOptions.find(o => o.key === jobType)?.label || jobType;
+            labels.push(typeLabel);
+        }
+        if (radiusKm !== 50) {
+            labels.push(`${radiusKm}km`);
+        }
+        if (matchSkills) {
+            labels.push(t('jobs.matchMySkills') || 'Skills Match');
+        }
+        if (matchAvailability) {
+            labels.push(t('jobs.matchAvailability') || 'Availability');
+        }
+        return labels;
+    };
+
+    const activeFiltersCount = getActiveFiltersCount();
+    const activeFilterLabels = getActiveFilterLabels();
+
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
             {/* Header - Location Bar */}
@@ -615,18 +647,86 @@ export default function BrowseJobsScreen() {
                     </View>
                     <TouchableOpacity
                         style={{
-                            backgroundColor: showFilters ? colors.primary : colors.card,
+                            backgroundColor: showFilters ? colors.primary : (activeFiltersCount > 0 ? colors.primaryLight : colors.card),
                             padding: 12,
                             borderRadius: 12,
                             borderWidth: 1,
-                            borderColor: showFilters ? colors.primary : colors.cardBorder,
+                            borderColor: showFilters ? colors.primary : (activeFiltersCount > 0 ? colors.primary : colors.cardBorder),
                             justifyContent: 'center',
+                            position: 'relative',
                         }}
                         onPress={() => setShowFilters(!showFilters)}
                     >
                         <Text style={{ fontSize: 18 }}>⚙️</Text>
+                        {activeFiltersCount > 0 && (
+                            <View style={{
+                                position: 'absolute',
+                                top: -6,
+                                right: -6,
+                                backgroundColor: colors.primary,
+                                borderRadius: 10,
+                                minWidth: 20,
+                                height: 20,
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                paddingHorizontal: 4,
+                            }}>
+                                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>{activeFiltersCount}</Text>
+                            </View>
+                        )}
                     </TouchableOpacity>
                 </View>
+
+                {/* Active Filters Display */}
+                {activeFiltersCount > 0 && !showFilters && (
+                    <View style={{ marginTop: 8 }}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                                {activeFilterLabels.map((label, index) => (
+                                    <View
+                                        key={index}
+                                        style={{
+                                            backgroundColor: colors.primaryLight,
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 4,
+                                            borderRadius: 12,
+                                            borderWidth: 1,
+                                            borderColor: colors.primary + '50',
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                        }}
+                                    >
+                                        <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '500' }}>
+                                            {label}
+                                        </Text>
+                                    </View>
+                                ))}
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        // Reset all filters to default
+                                        setJobType('all');
+                                        setRadiusKm(50);
+                                        setMatchSkills(false);
+                                        setMatchAvailability(false);
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 10,
+                                        paddingVertical: 4,
+                                        borderRadius: 12,
+                                        backgroundColor: colors.errorLight || colors.error + '20',
+                                        borderWidth: 1,
+                                        borderColor: colors.error + '50',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: 12, color: colors.error, fontWeight: '500' }}>
+                                        {t('common.clear') || 'Clear'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                )}
 
                 {/* Filter Panel */}
                 {showFilters && (
@@ -1106,7 +1206,39 @@ export default function BrowseJobsScreen() {
                                             <Text style={{ fontSize: 12, fontWeight: '600', color: colors.success }}>REMOTE</Text>
                                         </View>
                                     )}
+                                    {/* Completion Points Badge for Part-time Jobs */}
+                                    {selectedJob.job_type === 'part_time' && selectedJob.completion_points > 0 && (
+                                        <View style={{ backgroundColor: '#8B5CF6' + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
+                                            <Text style={{ fontSize: 12, fontWeight: '600', color: '#8B5CF6' }}>
+                                                🎯 +{selectedJob.completion_points} pts
+                                            </Text>
+                                        </View>
+                                    )}
                                 </View>
+
+                                {/* Completion Points Card for Part-time Jobs */}
+                                {selectedJob.job_type === 'part_time' && selectedJob.completion_points > 0 && (
+                                    <View style={{
+                                        backgroundColor: '#8B5CF6' + '15',
+                                        padding: 16,
+                                        borderRadius: 12,
+                                        marginBottom: 16,
+                                        borderWidth: 1,
+                                        borderColor: '#8B5CF6' + '30',
+                                    }}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            <Text style={{ fontSize: 24, marginRight: 12 }}>🎯</Text>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={{ fontSize: 14, fontWeight: '700', color: '#8B5CF6' }}>
+                                                    Earn {selectedJob.completion_points} Bonus Points!
+                                                </Text>
+                                                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+                                                    Complete this job successfully to earn bonus points
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                )}
 
                                 {/* Location */}
                                 <View style={{

@@ -39,6 +39,7 @@ export interface SeekerSkill {
     assessment_score?: number;
     endorsement_count: number;
     created_at: string;
+    can_request_verification?: boolean; // Only available with premium subscription
 }
 
 export interface Certification {
@@ -251,6 +252,44 @@ export const skillService = {
         const response = await api.get<SeekerCertification[]>('/skills/certifications/expiring/', {
             params: { days }
         });
+        return response.data;
+    },
+
+    /**
+     * Get skill verification status for all user's skills
+     */
+    async getSkillVerificationStatus(): Promise<{
+        skills: {
+            id: number;
+            skill_id: number;
+            name: string;
+            proficiency_level: string;
+            years_experience: number | null;
+            is_verified: boolean;
+            verified_at: string | null;
+            can_request_verification: boolean;
+        }[];
+        has_verification_access: boolean;
+        total_skills: number;
+        verified_skills: number;
+    }> {
+        const response = await api.get('/skills/verification/status/');
+        return response.data;
+    },
+
+    /**
+     * Request verification for a skill (requires premium subscription)
+     */
+    async requestSkillVerification(seekerSkillId: number): Promise<{
+        message: string;
+        skill_id: number;
+        skill_name: string;
+        status: string;
+        requires_subscription?: boolean;
+        feature_name?: string;
+        error?: string;
+    }> {
+        const response = await api.post(`/skills/verification/request/${seekerSkillId}/`);
         return response.data;
     },
 };

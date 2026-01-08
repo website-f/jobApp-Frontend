@@ -84,9 +84,16 @@ export interface AuthTokens {
 export interface RegisterData {
     email: string;
     password: string;
-    password2: string;
+    password_confirmation?: string;
+    password2?: string;
     user_type: 'seeker' | 'employer';
+    first_name?: string;
+    last_name?: string;
     phone?: string;
+    company_name?: string;
+    employer_name?: string;
+    date_of_birth?: string;
+    location?: string;
 }
 
 export interface LoginData {
@@ -149,6 +156,46 @@ export const authService = {
             await setAuthTokens(response.data.access, response.data.refresh);
         }
         return response.data;
+    },
+
+    /**
+     * Google Sign-In - sends token to backend
+     * Note: The actual Google OAuth flow should be handled in the component using expo-auth-session hooks
+     */
+    async googleSignInWithToken(accessToken: string, userType: 'seeker' | 'employer' = 'seeker'): Promise<{ success: boolean; data?: any; message?: string }> {
+        try {
+            const response = await api.post('/auth/social/', {
+                provider: 'google',
+                access_token: accessToken,
+                user_type: userType,
+            });
+
+            if (response.data.access && response.data.refresh) {
+                await setAuthTokens(response.data.access, response.data.refresh);
+            }
+
+            return {
+                success: true,
+                data: response.data,
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                message: error.response?.data?.error || error.message || 'Google sign-in failed'
+            };
+        }
+    },
+
+    /**
+     * Google Sign-In placeholder - actual flow handled in component
+     */
+    async googleSignIn(userType: 'seeker' | 'employer' = 'seeker'): Promise<{ success: boolean; data?: any; message?: string }> {
+        // This method is a placeholder - the actual Google OAuth flow
+        // should be handled in the component using expo-auth-session hooks
+        return {
+            success: false,
+            message: 'Google Sign-In requires component-level authentication. Please use the Google button.'
+        };
     },
 
     /**

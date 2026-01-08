@@ -30,7 +30,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     const colors = useColors();
 
     // Google Sign-In hook
-    const { request: googleRequest, response: googleResponse, promptAsync: promptGoogleAsync } = useGoogleAuth();
+    const { request: googleRequest, response: googleResponse, promptAsync: promptGoogleAsync, redirectUri } = useGoogleAuth();
 
     // Handle Google Sign-In response
     useEffect(() => {
@@ -78,7 +78,20 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             );
             return;
         }
-        await promptGoogleAsync();
+
+        // Log the redirect URI for debugging
+        console.log('Starting Google Sign-In with redirect URI:', redirectUri);
+
+        try {
+            await promptGoogleAsync();
+        } catch (error: any) {
+            console.error('Google prompt error:', error);
+            // Show the redirect URI that needs to be added to Google Console
+            Alert.alert(
+                'Google Sign-In Error',
+                `Error: ${error.message}\n\nMake sure this redirect URI is added in Google Cloud Console:\n${redirectUri}`
+            );
+        }
     };
 
     const handleLogin = async () => {

@@ -26,6 +26,8 @@ export interface UpdateSeekerProfileData {
     hourly_rate_max?: number;
     rate_currency?: string;
     availability_status?: 'available' | 'busy' | 'not_available';
+    languages_spoken?: string[];
+    intro_video_url?: string;
 }
 
 export interface UpdateEmployerProfileData {

@@ -41,6 +41,7 @@ export interface Job {
     distance_km?: number;
     match_score?: number;
     shifts?: JobShift[];
+    completion_points?: number; // Points awarded when job is completed (part-time only)
 }
 
 export interface JobSearchFilters {

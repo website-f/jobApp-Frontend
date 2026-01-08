@@ -66,6 +66,7 @@ export default function PostJobScreen() {
         schedule: null as any,
         hourly_rate: '',
         completion_reward: '',
+        completion_points: '0', // Points awarded when part-time job is completed
     });
 
     const [showMap, setShowMap] = useState(false);
@@ -94,6 +95,7 @@ export default function PostJobScreen() {
                 schedule: editJob.schedule || null,
                 hourly_rate: editJob.hourly_rate?.toString() || '',
                 completion_reward: editJob.completion_reward?.toString() || '',
+                completion_points: editJob.completion_points?.toString() || '0',
             });
             if (editJob.skills) {
                 // Handle skills as array of objects or strings
@@ -355,6 +357,8 @@ export default function PostJobScreen() {
                 description: formData.description || 'No description provided',
                 skills: selectedSkills,
                 schedule: formData.schedule || editJob?.schedule,
+                // Include completion points for part-time jobs
+                completion_points: formData.job_type === 'part_time' ? (parseInt(formData.completion_points) || 0) : 0,
             };
 
             // Only add category/job_title if they're valid DB IDs (not local fallbacks)
@@ -509,9 +513,58 @@ export default function PostJobScreen() {
                     />
                 </>
             ) : (
-                <Text style={{ color: colors.textMuted, fontStyle: 'italic', marginBottom: 20 }}>
-                    Part-time jobs configured in later steps.
-                </Text>
+                <>
+                    <Text style={{ color: colors.textMuted, fontStyle: 'italic', marginBottom: 12 }}>
+                        Part-time shift details are configured in the Schedule step.
+                    </Text>
+
+                    {/* Completion Points for Part-time */}
+                    <View style={{
+                        backgroundColor: colors.card,
+                        padding: 16,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        marginBottom: 20,
+                    }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                            <Text style={{ fontSize: 20, marginRight: 8 }}>🎯</Text>
+                            <Text style={{ color: colors.text, fontWeight: '600', fontSize: 14 }}>Completion Points (Optional)</Text>
+                        </View>
+                        <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
+                            Award bonus points to job seekers when they successfully complete this job. Points motivate workers and build loyalty.
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <TextInput
+                                style={[styles.input, {
+                                    flex: 1,
+                                    backgroundColor: colors.inputBackground,
+                                    color: colors.text,
+                                    borderColor: colors.border,
+                                    marginRight: 8,
+                                }]}
+                                placeholder="0"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="numeric"
+                                value={formData.completion_points}
+                                onChangeText={t => setFormData({ ...formData, completion_points: t })}
+                            />
+                            <Text style={{ color: colors.textSecondary, fontWeight: '600' }}>points</Text>
+                        </View>
+                        {parseInt(formData.completion_points) > 0 && (
+                            <View style={{
+                                backgroundColor: colors.successLight || colors.success + '20',
+                                padding: 8,
+                                borderRadius: 8,
+                                marginTop: 12,
+                            }}>
+                                <Text style={{ color: colors.success, fontSize: 12, textAlign: 'center' }}>
+                                    ✨ Workers will earn {formData.completion_points} points upon job completion!
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                </>
             )}
 
         </ScrollView>

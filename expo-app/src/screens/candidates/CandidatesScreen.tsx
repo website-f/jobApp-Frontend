@@ -156,6 +156,44 @@ export default function CandidatesScreen() {
         }
     };
 
+    // Count active filters
+    const getActiveFiltersCount = () => {
+        let count = 0;
+        if (filters.sort_by && filters.sort_by !== 'match_score') count++;
+        if (filters.availability) count++;
+        if (filters.min_proficiency) count++;
+        if (filters.verified_only) count++;
+        if (filters.remote_ok) count++;
+        return count;
+    };
+
+    // Get active filter labels for display
+    const getActiveFilterLabels = (): string[] => {
+        const labels: string[] = [];
+        if (filters.sort_by && filters.sort_by !== 'match_score') {
+            const sortLabel = filterOptions?.sort_options.find(o => o.value === filters.sort_by)?.label || filters.sort_by;
+            labels.push(`Sort: ${sortLabel}`);
+        }
+        if (filters.availability) {
+            const availLabel = filterOptions?.availability_options.find(o => o.value === filters.availability)?.label || filters.availability;
+            labels.push(availLabel);
+        }
+        if (filters.min_proficiency) {
+            const profLabel = filterOptions?.proficiency_levels.find(o => o.value === filters.min_proficiency)?.label || filters.min_proficiency;
+            labels.push(`Min: ${profLabel}`);
+        }
+        if (filters.verified_only) {
+            labels.push('Verified');
+        }
+        if (filters.remote_ok) {
+            labels.push('Remote');
+        }
+        return labels;
+    };
+
+    const activeFiltersCount = getActiveFiltersCount();
+    const activeFilterLabels = getActiveFilterLabels();
+
     const renderCandidateCard = ({ item: candidate }: { item: Candidate }) => (
         <TouchableOpacity
             style={{
@@ -428,9 +466,30 @@ export default function CandidatesScreen() {
                 </Text>
                 <TouchableOpacity
                     onPress={() => setShowFilters(true)}
-                    style={{ padding: spacing.sm }}
+                    style={{
+                        padding: spacing.sm,
+                        position: 'relative',
+                        backgroundColor: activeFiltersCount > 0 ? colors.primaryLight : 'transparent',
+                        borderRadius: borderRadius.base,
+                    }}
                 >
                     <Ionicons name="options-outline" size={24} color={colors.primary} />
+                    {activeFiltersCount > 0 && (
+                        <View style={{
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            backgroundColor: colors.primary,
+                            borderRadius: 10,
+                            minWidth: 18,
+                            height: 18,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            paddingHorizontal: 4,
+                        }}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>{activeFiltersCount}</Text>
+                        </View>
+                    )}
                 </TouchableOpacity>
             </View>
 
@@ -496,6 +555,55 @@ export default function CandidatesScreen() {
                                 <Ionicons name="close" size={14} color={colors.primary} style={{ marginLeft: 4 }} />
                             </TouchableOpacity>
                         ))}
+                    </View>
+                )}
+
+                {/* Active Filters Display */}
+                {activeFiltersCount > 0 && (
+                    <View style={{ marginTop: spacing.sm }}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                                {activeFilterLabels.map((label, index) => (
+                                    <View
+                                        key={index}
+                                        style={{
+                                            backgroundColor: colors.primaryLight,
+                                            paddingHorizontal: spacing.sm,
+                                            paddingVertical: 4,
+                                            borderRadius: borderRadius.full,
+                                            borderWidth: 1,
+                                            borderColor: colors.primary + '50',
+                                        }}
+                                    >
+                                        <Text style={{ fontSize: typography.fontSize.xs, color: colors.primary, fontWeight: '500' }}>
+                                            {label}
+                                        </Text>
+                                    </View>
+                                ))}
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        // Reset all filters to default
+                                        setFilters({
+                                            sort_by: 'match_score',
+                                            page: 1,
+                                            page_size: 20,
+                                        });
+                                    }}
+                                    style={{
+                                        paddingHorizontal: spacing.sm,
+                                        paddingVertical: 4,
+                                        borderRadius: borderRadius.full,
+                                        backgroundColor: colors.error + '20',
+                                        borderWidth: 1,
+                                        borderColor: colors.error + '50',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: typography.fontSize.xs, color: colors.error, fontWeight: '500' }}>
+                                        Clear
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
                 )}
 

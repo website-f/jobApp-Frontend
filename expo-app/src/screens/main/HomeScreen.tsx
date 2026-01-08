@@ -138,9 +138,13 @@ export default function HomeScreen() {
                     </View>
                 </LinearGradient>
 
-                {/* Profile Completeness Card */}
+                {/* Profile Completeness Card - Clickable */}
                 {isSeeker && completeness < 100 && (
-                    <View style={styles.section}>
+                    <TouchableOpacity
+                        style={styles.section}
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate('EditProfile' as never)}
+                    >
                         <Card variant="outlined" style={{ borderColor: colors.primary + '40' }}>
                             <View style={styles.completenessHeader}>
                                 <View style={styles.completenessIcon}>
@@ -154,6 +158,7 @@ export default function HomeScreen() {
                                         Increase your visibility to employers
                                     </Text>
                                 </View>
+                                <Ionicons name="chevron-forward" size={20} color={colors.primary} />
                             </View>
                             <ProgressBar
                                 progress={completeness}
@@ -163,7 +168,7 @@ export default function HomeScreen() {
                                 style={{ marginTop: spacing.md }}
                             />
                         </Card>
-                    </View>
+                    </TouchableOpacity>
                 )}
 
                 {/* AI Job Recommendations Section */}
@@ -230,60 +235,97 @@ export default function HomeScreen() {
                     </View>
                 )}
 
-                {/* Stats Section */}
+                {/* Stats Section - Clickable */}
                 <View style={styles.section}>
-                    <SectionHeader
-                        title="Your Stats"
-                        icon="analytics-outline"
-                    />
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => navigation.navigate('WorkHistory' as never)}
+                    >
+                        <SectionHeader
+                            title="Your Stats"
+                            icon="analytics-outline"
+                            actionLabel="View Details"
+                            onAction={() => navigation.navigate('WorkHistory' as never)}
+                        />
+                    </TouchableOpacity>
                     <View style={styles.statsRow}>
                         {isSeeker ? (
                             <>
-                                <StatCard
-                                    title="Jobs Done"
-                                    value={(displayProfile as any)?.total_jobs_completed || 0}
-                                    icon="briefcase"
-                                    variant="gradient"
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
-                                <StatCard
-                                    title="Rating"
-                                    value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)}
-                                    icon="star"
-                                    variant="default"
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('WorkHistory' as never)}
+                                >
+                                    <StatCard
+                                        title="Jobs Done"
+                                        value={(displayProfile as any)?.total_jobs_completed || 0}
+                                        icon="briefcase"
+                                        variant="gradient"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
-                                <StatCard
-                                    title="Skills"
-                                    value={profile?.skills?.length || 0}
-                                    icon="code-slash"
-                                    variant="default"
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('Ratings' as never)}
+                                >
+                                    <StatCard
+                                        title="Rating"
+                                        value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)}
+                                        icon="star"
+                                        variant="default"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('Skills' as never)}
+                                >
+                                    <StatCard
+                                        title="Skills"
+                                        value={profile?.skills?.length || 0}
+                                        icon="code-slash"
+                                        variant="default"
+                                    />
+                                </TouchableOpacity>
                             </>
                         ) : (
                             <>
-                                <StatCard
-                                    title="Jobs Posted"
-                                    value={(displayProfile as any)?.total_jobs_posted || 0}
-                                    icon="megaphone"
-                                    variant="gradient"
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
-                                <StatCard
-                                    title="Hires"
-                                    value={(displayProfile as any)?.total_hires || 0}
-                                    icon="people"
-                                    variant="default"
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('EmployerJobs' as never)}
+                                >
+                                    <StatCard
+                                        title="Jobs Posted"
+                                        value={(displayProfile as any)?.total_jobs_posted || 0}
+                                        icon="megaphone"
+                                        variant="gradient"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
-                                <StatCard
-                                    title="Rating"
-                                    value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)}
-                                    icon="star"
-                                    variant="default"
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('Candidates' as never)}
+                                >
+                                    <StatCard
+                                        title="Hires"
+                                        value={(displayProfile as any)?.total_hires || 0}
+                                        icon="people"
+                                        variant="default"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity
                                     style={styles.statCard}
-                                />
+                                    activeOpacity={0.7}
+                                    onPress={() => navigation.navigate('Ratings' as never)}
+                                >
+                                    <StatCard
+                                        title="Rating"
+                                        value={Number((displayProfile as any)?.overall_rating || 0).toFixed(1)}
+                                        icon="star"
+                                        variant="default"
+                                    />
+                                </TouchableOpacity>
                             </>
                         )}
                     </View>
